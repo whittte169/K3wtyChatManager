@@ -1,0 +1,39 @@
+enable_device_blocking: false # will the plugin block access from the specified devices
+blocked_devices:
+  mobile: false
+  pc: false
+  console: false
+
+enable_inputmode_blocking: false # will the plugin block input devices: keyboard and mouse, touch input, gamepad
+blocked_inputmodes:
+  mouse_and_keyboard: false
+  touch_input: false
+  gamepad: false
+
+punishment: "kick" # punishment for using the device or input device ("ban", "kick", "ipban", "xuidban")
+punishment_reason_for_device: "§cYou cannot join this server from this device!" # reason for ban/kick for device
+punishment_reason_for_im: "§cYou cannot use this input device on this server!" # reason for ban/kick for input device
+allow_players: # Nicknames of players permitted to log in from banned devices and use banned input modes
+  - "NicknameExample"
+nametag_enabled: true # will the player name above the head be replaced
+# %player% - player name
+# %privilege% - player privilege
+# %device% - player device
+# %inputmode% - player input mode
+# %ping% - player ping
+# %health% - player health
+nametag_format: "[%privilege%§r] %player% §7| §r%device%\n  §c%health% HP §7|§r %ping%"
+
+displayname_enabled: true # whether the player's name will be replaced in the chat
+# %player% - player name
+# %privilege% - player privilege
+# %device% - player device
+# %ping% - player ping
+# %message% - message what was send in chat
+# %chat - chat type
+displayname_format: "%chat% [%privilege%§r] %player% §7> §r%message%"
+
+local_chat_enabled: true
+local_chat_radius: 25
+
+global_chat_symbol: "!" # symbol before a player's message to send it to global chat

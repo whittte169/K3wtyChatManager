@@ -1,0 +1,6 @@
+name: ChatManagerSystem
+version: ["1.0.0"]
+main: white.Main
+api: ["1.0.0"]
+author: whittte169
+description: "Added to your server a ChatManager"
