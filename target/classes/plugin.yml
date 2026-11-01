@@ -1,0 +1,13 @@
+name: K3wtyChatManager
+version: ["1.0.1"]
+main: com.white.k3wtychatmanager.Main
+api: ["1.0.0"]
+author: whittte169
+description: "Added to your server a ChatManager"
+permissions:
+  white.permissions.commands.xuidban:
+    description: "Allow player to use a xuidban and xuidpardon command"
+    default: "op"
+  white.permissions.chat.color:
+    description: "Allow player use color codes in chat messages"
+    default: "op"

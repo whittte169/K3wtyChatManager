@@ -1,27 +1,35 @@
 enable_device_blocking: false
 blocked_devices:
   mobile: false
-  pc: false
+  desktop: false
   console: false
+  other: false
+  undefined: false
 
-enable_inputmode_blocking: false
-blocked_inputmodes:
-  mouse_and_keyboard: false
-  touch_input: false
-  gamepad: false
+enable_input_mode_blocking: false
+blocked_input_modes:
+  mouse: false
+  touch: false
+  game_pad: false
+  motion_controller: false
+  count: false
 
-punishment: "kick"
-punishment_reason_for_device: "§cYou cannot join this server from this device!"
-punishment_reason_for_im: "§cYou cannot use this input device on this server!"
-allow_players:
-  - "NicknameExample"
-nametag_enabled:
-nametag_format: "[%privilege%§r] %player% §7| §r%device%\n  §c%health% HP §7|§r %ping%"
+kick_reason: 
+  device: "You cannot use this device on this server!"
+  input_mode: "You cannot use this input mode on this server!"
 
-displayname_enabled: true
-displayname_format: "%chat% [%privilege%§r] %player% §7> §r%message%"
+enable_chat_dividing: true
 
-local_chat_enabled: true
 local_chat_radius: 25
 
 global_chat_symbol: "!"
+
+chat_display:
+  local: "&6[L]"
+  global: "&c[G]"
+  undefined: "&7[U]"
+
+message_format: "%chat_type% &7| &r[%rank%&r] %player% %title% &8&l-> &r%message%"
+
+enable_name_tag_change: true
+name_tag_format: "%device% &7| &r[%rank%&r] %player% %title%\n  &c%health% HP &7| &r%ping% ms"

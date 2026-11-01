@@ -3,10 +3,10 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>white</groupId>
-  <artifactId>ChatManagerSystem</artifactId>
-  <version>1.0.0</version>
-  <name>ChatManagerSystem</name>
+  <groupId>com.white</groupId>
+  <artifactId>k3wtychatmanager</artifactId>
+  <version>1.0.1</version>
+  <name>K3wtyChatManager</name>
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
@@ -24,7 +24,7 @@
     <dependency>
       <groupId>com.nukkit-mot</groupId>
       <artifactId>nukkit-mot</artifactId>
-      <version>1.26.30-R1</version>
+      <version>1.26.50-R1</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
@@ -33,5 +33,42 @@
       <version>5.5</version>
       <scope>provided</scope>
     </dependency>
+        <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.46.1.0</version>
+      <scope>compile</scope>
+    </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.3</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
