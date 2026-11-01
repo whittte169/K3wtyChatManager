@@ -3,6 +3,7 @@ package com.white.k3wtychatmanager;
 import cn.nukkit.plugin.PluginBase;
 import cn.nukkit.plugin.Plugin;
 import cn.nukkit.event.Listener;
+import cn.nukkit.utils.TextFormat;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -23,7 +24,7 @@ public class Main extends PluginBase implements Listener, ClientManagerHandler, 
     private ClientManager clientManager = ClientManager.getInstance();
 
     @Override 
-    public Main getPlugin() {
+    public Plugin getPlugin() {
         return this;
     }
 
@@ -40,6 +41,11 @@ public class Main extends PluginBase implements Listener, ClientManagerHandler, 
         this.getServer().getPluginManager().registerEvents(this, (Plugin) this);
         ResourcePackManager.register((Main) INSTANCE);
         CommandManager.getInstance().registerCommands(INSTANCE);
+        updateNameTag();
+        checkInputMode();
+        this.getLogger().info("K3wtyChatManager has successfuly loaded!");
+        this.getLogger().info(TextFormat.GOLD + "MIT License");
+        this.getLogger().info("GitHub repository: " + TextFormat.GREEN + "https://github.com/whittte169/K3wtyChatManager");
     }
 
     @Override

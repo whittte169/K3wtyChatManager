@@ -87,7 +87,7 @@ public final class CommandManager {
                 return false;
             }
             sender.sendMessage(targetName + " was banned by XUID");
-            target.kick("You was banned!");
+            target.kick("You was banned!\nReason: " + reason);
             return true;
         }
     }

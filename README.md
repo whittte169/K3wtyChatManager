@@ -1,380 +1,442 @@
-# ChatManagerSystem
+# K3wtyChatManager
 
-A plugin for **Nukkit-MOT** that adds the following to your Minecraft Bedrock server:
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Java 17](https://img.shields.io/badge/Java-17-orange)
+![Platform](https://img.shields.io/badge/platform-Nukkit--MOT-green)
+![Version](https://img.shields.io/badge/version-1.0.1-informational)
 
-- **device blocking** (mobile, PC, console);
-- **input mode blocking** (keyboard and mouse, touch input, gamepad);
-- **punishments** for using banned devices (kick, ban, IP ban, XUID ban);
-- **customizable NameTag** (the name above a player's head) with privilege, device, ping, and health;
-- **customizable chat format** with a LuckPerms prefix;
-- **local and global chat**.
+A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Edition) servers.
 
-This guide covers configuration through `config.yml` only.
+- **Local / global chat** – messages are local by default (radius-based); prefix a message with `!` to send it globally.
+- **Fully customizable chat format** with placeholders (rank, title, device, ping, health, position, …).
+- **Dynamic name tags** showing device icon, rank, health and ping.
+- **Device & input-mode blocking** – kick mobile / desktop / console players, or players using touch / mouse / gamepad.
+- **XUID bans** – ban players by their Xbox Live ID so name changes can't bypass the ban.
+- **Public API** (`ChatManager`, `ClientManager`, `ClientDatabase`) for other plugins.
 
 ---
 
 ## Table of contents
 
-1. [Requirements and installation](#requirements-and-installation)
-2. [Configuration file](#configuration-file)
-3. [Device blocking](#device-blocking)
-4. [Input mode blocking](#input-mode-blocking)
-5. [Punishments and messages](#punishments-and-messages)
-6. [Exception list](#exception-list-allow_players)
-7. [NameTag (name above the head)](#nametag-name-above-the-head)
-8. [Chat message format](#chat-message-format)
-9. [Local and global chat](#local-and-global-chat)
-10. [Colors and formatting](#colors-and-formatting)
-11. [Important notes](#important-notes)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [For server owners & players](#for-server-owners--players)
+  - [Chat system](#chat-system)
+  - [Commands](#commands)
+  - [Permissions](#permissions)
+  - [Configuration](#configuration)
+  - [Placeholders](#placeholders)
+  - [Ranks and titles (LuckPerms)](#ranks-and-titles-luckperms)
+  - [Device & input mode blocking](#device--input-mode-blocking)
+  - [Data storage](#data-storage)
+- [For developers](#for-developers)
+  - [Adding the plugin as a dependency](#adding-the-plugin-as-a-dependency)
+  - [API overview](#api-overview)
+  - [`ChatManager`](#chatmanager)
+  - [`ClientManager` / `ClientDatabase`](#clientmanager--clientdatabase)
+  - [Enums](#enums)
+  - [Examples](#examples)
+  - [Building from source](#building-from-source)
+  - [Project structure](#project-structure)
+- [Notes](#notes)
+- [License](#license)
 
 ---
 
-## Requirements and installation
+## Requirements
 
-| Requirement | Version |
-|---|---|
-| Server | Nukkit-MOT |
-| Java | 17 or newer |
-| [LuckPerms](https://luckperms.net/) | Needed for `%privilege%` (see below) |
+| Requirement | Version | Notes |
+|---|---|---|
+| Java | 17+ | |
+| [Nukkit-MOT](https://github.com/MemoriesOfTime/Nukkit-MOT) | `1.26.50-R1` (build target) | Plugin API `1.0.0` |
+| [LuckPerms](https://luckperms.net/) | 5.5+ (Nukkit build) | **Required** – ranks and titles are read from LuckPerms prefixes/suffixes. Chat formatting calls `LuckPermsProvider.get()`, so LuckPerms must be installed and loaded. |
 
-1. Put `ChatManagerSystem.jar` into the server's `plugins/` folder.
-2. Install LuckPerms (if it is not installed yet) and set up group prefixes.
-3. Start the server: the plugin creates `plugins/ChatManagerSystem/config.yml` by itself.
-4. Edit the config and **restart the server**.
+SQLite JDBC is bundled (shaded) into the plugin jar — nothing else to install.
 
-> ⚠️ **LuckPerms is effectively required.** The plugin does not declare it as an optional dependency and calls it when building the name tag and chat messages. Without LuckPerms, errors will appear in the console while `nametag_enabled` / `displayname_enabled` are on.
+## Installation
 
-> ⚠️ **There is no config reload command.** Restart the server after any change to `config.yml`.
+1. Install **LuckPerms** on your Nukkit-MOT server.
+2. Download `k3wtychatmanager-<version>.jar` from the [Releases](https://github.com/whittte169/K3wtyChatManager/releases) page and put it into the server's `plugins/` folder.
+3. Start the server. The plugin will generate `plugins/K3wtyChatManager/config.yml`.
+4. Edit the config to your liking and restart the server.
+
+On every start the plugin also extracts and registers a bundled **font resource pack** (`font_pack.zip`) that provides the device icons used in name tags / chat. Players will be asked to download the pack when joining.
 
 ---
 
-## Configuration file
+## For server owners & players
 
-Location: `plugins/ChatManagerSystem/config.yml`
+### Chat system
 
-Default values:
+When `enable_chat_dividing` is `true` (default), chat is split into two channels:
+
+| Channel | How to use | Who receives it |
+|---|---|---|
+| **Local** `[L]` | Just type your message | Players in the **same world** within `local_chat_radius` blocks (default `25`) |
+| **Global** `[G]` | Start your message with the global symbol, e.g. `!Hello everyone` | **All** online players |
+
+Notes:
+
+- The global symbol is removed from the message before it is displayed.
+- Empty messages (after removing the symbol) are ignored.
+- Local messages are also written to the server console log.
+- Players **without** the `white.permissions.chat.color` permission have colour/formatting codes (`&a`, `§c`, …) stripped from their messages.
+- If `enable_chat_dividing` is `false`, the plugin does not touch chat and the server default is used.
+
+### Commands
+
+| Command | Aliases | Description | Permission |
+|---|---|---|---|
+| `/xuidban <target> [reason]` | – | Bans an **online** player by their XUID and kicks them. The ban is stored in the database, so it persists across restarts and name changes. | `white.permissions.commands.xuidban` |
+| `/xuidpardon <xuid>` | `/xuidunban` | Removes a XUID from the ban list. Takes the **XUID** (not the player name). | `white.permissions.commands.xuidban` |
+| `/getxuid <target>` | – | Prints the XUID of an **online** player. Use it to find the value for `/xuidpardon`. | `white.permissions.commands.xuidban` |
+
+Examples:
+
+```text
+/getxuid Steve
+> Steve's XUID is 2535412345678901
+
+/xuidban Steve griefing
+> Steve was banned by XUID
+
+/xuidpardon 2535412345678901
+> 2535412345678901 was unbanned by XUID
+```
+
+> Commands can be run by players and from the console. Commands are also registered with the fallback prefix `k3wtychatmanager` (e.g. `/k3wtychatmanager:xuidban`).
+
+### Permissions
+
+| Permission | Default | Description |
+|---|---|---|
+| `white.permissions.commands.xuidban` | `op` | Use `/xuidban`, `/xuidpardon` and `/getxuid`. |
+| `white.permissions.chat.color` | `op` | Use colour codes in chat messages. |
+
+Grant them with LuckPerms, e.g.:
+
+```text
+/lp group moderator permission set white.permissions.commands.xuidban true
+/lp group vip permission set white.permissions.chat.color true
+```
+
+### Configuration
+
+`plugins/K3wtyChatManager/config.yml` (defaults shown):
 
 ```yaml
+# ---- Device blocking ----
 enable_device_blocking: false
 blocked_devices:
-  mobile: false
-  pc: false
-  console: false
+  mobile: false      # Android, iOS, Windows Phone
+  desktop: false     # Windows, Windows x86, macOS, Linux, Fire
+  console: false     # PlayStation, Xbox, Switch
+  other: false       # Dedicated, HoloLens, Gear VR, tvOS
+  undefined: false   # Unknown device
 
-enable_inputmode_blocking: false
-blocked_inputmodes:
-  mouse_and_keyboard: false
-  touch_input: false
-  gamepad: false
+# ---- Input mode blocking ----
+enable_input_mode_blocking: false
+blocked_input_modes:
+  mouse: false
+  touch: false
+  game_pad: false
+  motion_controller: false
+  count: false
 
-punishment: "kick"
-punishment_reason_for_device: "§cYou cannot join this server from this device!"
-punishment_reason_for_im: "§cYou cannot use this input device on this server!"
-allow_players:
-  - "NicknameExample"
+kick_reason:
+  device: "You cannot use this device on this server!"
+  input_mode: "You cannot use this input mode on this server!"
 
-nametag_enabled: true
-nametag_format: "[%privilege%§r] %player% §7| §r%device%\n  §c%health% HP §7|§r %ping%"
-
-displayname_enabled: true
-displayname_format: "%chat% [%privilege%§r] %player% §7> §r%message%"
-
-local_chat_enabled: true
+# ---- Chat ----
+enable_chat_dividing: true
 local_chat_radius: 25
 global_chat_symbol: "!"
+
+chat_display:
+  local: "&6[L]"
+  global: "&c[G]"
+  undefined: "&7[U]"
+
+message_format: "%chat_type% &7| &r[%rank%&r] %player% %title% &8&l-> &r%message%"
+
+# ---- Name tags ----
+enable_name_tag_change: true
+name_tag_format: "%device% &7| &r[%rank%&r] %player% %title%\n  &c%health% HP &7| &r%ping% ms"
 ```
 
----
+| Option | Type | Description |
+|---|---|---|
+| `enable_device_blocking` | boolean | Master switch for device blocking. |
+| `blocked_devices.*` | boolean | Set a group to `true` to kick players on that device group when they connect. |
+| `enable_input_mode_blocking` | boolean | Master switch for input-mode blocking. |
+| `blocked_input_modes.*` | boolean | Set a mode to `true` to kick players using it. |
+| `kick_reason.device` / `kick_reason.input_mode` | string | Message shown to a kicked player. |
+| `enable_chat_dividing` | boolean | Enable the local/global chat system and custom format. |
+| `local_chat_radius` | number | Radius (in blocks) of local chat. |
+| `global_chat_symbol` | string | Prefix that makes a message global. May be more than one character. |
+| `chat_display.*` | string | Text for the `%chat_type%` placeholder per channel. Supports `&` colour codes. |
+| `message_format` | string | Template for chat messages. See [Placeholders](#placeholders). |
+| `enable_name_tag_change` | boolean | Enable custom name tags. |
+| `name_tag_format` | string | Template for name tags (use `\n` for a new line). |
 
-## Device blocking
+Colour codes use `&` (e.g. `&6` = gold, `&l` = bold, `&r` = reset).
 
-Lets you forbid joining from certain types of devices.
+### Placeholders
 
-### 1. Enable the check
+Placeholders are written between percent signs and can be used in `message_format` and `name_tag_format`. Unknown placeholders are left as-is.
 
-```yaml
-enable_device_blocking: false
+| Placeholder | Available in | Description | Example |
+|---|---|---|---|
+| `%player%` | chat, name tag | Player name | `Steve` |
+| `%message%` | chat only | The message text | `Hello!` |
+| `%chat_type%` | chat only | Channel label (`[L]`, `[G]`, `[U]`) | `[L]` |
+| `%rank%` | both | LuckPerms **prefix** | `&4Admin` |
+| `%title%` | both | LuckPerms **suffix** | `&7the Builder` |
+| `%device%` | both | Device icon glyph (from the font pack) for mobile / desktop / console; `Other` / `Undefined` as text | custom glyph in-game |
+| `%input_mode%` | both | `Mouse and keyboard` / `Game pad` | `Game pad` |
+| `%health%` | both | Current health | `20.0` |
+| `%ping%` | both | Ping in ms | `42` |
+| `%gamemode%` | both | `Survival`, `Creative`, `Adventure`, `Spectator` | `Survival` |
+| `%dimension%` | both | `Overworld`, `Nether`, `The End` | `Overworld` |
+| `%x%` `%y%` `%z%` | both | Block coordinates | `120` |
+| `%position%` | both | Formatted position | `D: Overworld, X: 120, Y: 64, Z: -45` |
+
+### Ranks and titles (LuckPerms)
+
+- **Rank** = the player's LuckPerms **prefix** (falls back to the prefix of their primary group).
+- **Title** = the player's LuckPerms **suffix** (falls back to the suffix of their primary group).
+
+```text
+/lp group admin meta setprefix 100 "&c[Admin]"
+/lp user Steve meta setsuffix 10 "&7the Builder"
 ```
 
-Change `false` to `true`.
+### Device & input mode blocking
 
-### 2. Choose the banned device types
+Checks are performed when a player connects (pre-login). Typical use cases:
 
-```yaml
-blocked_devices:
-  mobile: false
-  pc: false
-  console: false
-```
+- Make a **PC-only** server: set `enable_device_blocking: true` and `mobile: true`, `console: true`.
+- Block **touch controls** on a competitive server: set `enable_input_mode_blocking: true` and `touch: true`.
 
-Set a type to `true` to ban it.
+Device groups:
 
-| Option | Devices included |
+| Group | Operating systems |
 |---|---|
 | `mobile` | Android, iOS, Windows Phone |
-| `pc` | Windows 10/11, macOS, FireOS |
+| `desktop` | Windows, Windows x86, macOS, Linux, Fire |
 | `console` | PlayStation, Xbox, Nintendo Switch |
+| `other` | Dedicated, HoloLens, Gear VR, tvOS |
+| `undefined` | Everything else |
 
-Devices the plugin cannot identify (shown as `Unknown?` in the name tag) are **not blocked by any of these options**.
+### Data storage
 
-**Example:** a server for PC and console players only, no mobile players:
+XUID bans are stored in an SQLite database at:
 
-```yaml
-enable_device_blocking: true
-blocked_devices:
-  mobile: true
-  pc: false
-  console: false
+```text
+plugins/K3wtyChatManager/database.db
 ```
+
+Table: `banned_players_by_xuid (xuid TEXT PRIMARY KEY)`. Back this file up if you want to keep your ban list.
 
 ---
 
-## Input mode blocking
+## For developers
 
-Lets you forbid players from using a certain input method.
+### Adding the plugin as a dependency
 
-### 1. Enable the check
-
-```yaml
-enable_inputmode_blocking: false
-```
-
-Change `false` to `true`.
-
-### 2. Choose the banned input modes
+Add the plugin to your `plugin.yml` so it loads before yours:
 
 ```yaml
-blocked_inputmodes:
-  mouse_and_keyboard: false
-  touch_input: false
-  gamepad: false
+depend: ["K3wtyChatManager"]
 ```
 
-| Option | Description |
+Then add the jar to your build. With Maven (local jar, `provided` scope):
+
+```xml
+<dependency>
+  <groupId>com.white</groupId>
+  <artifactId>k3wtychatmanager</artifactId>
+  <version>1.0.1</version>
+  <scope>provided</scope>
+</dependency>
+```
+
+Install it into your local repository first:
+
+```bash
+mvn install:install-file -Dfile=k3wtychatmanager-1.0.1.jar \
+  -DgroupId=com.white -DartifactId=k3wtychatmanager -Dversion=1.0.1 -Dpackaging=jar
+```
+
+Or build it yourself (`mvn clean install`) — see [Building from source](#building-from-source).
+
+### API overview
+
+| Class | Package | Purpose |
+|---|---|---|
+| `ChatManager` | `com.white.k3wtychatmanager.api.chat` | Placeholder formatting, chat-type detection, rank/title lookup, display settings. Singleton. |
+| `ChatType` | `com.white.k3wtychatmanager.api.chat` | Enum: `UNDEFINED`, `LOCAL`, `GLOBAL`. |
+| `ClientManager` | `com.white.k3wtychatmanager.api.client` | Device OS, input mode, XUID and XUID-ban helpers. Singleton, implements `ClientDatabase`. |
+| `ClientDatabase` | `com.white.k3wtychatmanager.api.client` | SQLite-backed XUID ban storage (interface with default methods). |
+| `DeviceOS` | `com.white.k3wtychatmanager.api.client` | Enum of Bedrock device operating systems. |
+
+Both managers are singletons:
+
+```java
+ChatManager chat = ChatManager.getInstance();
+ClientManager client = ClientManager.getInstance();
+```
+
+### `ChatManager`
+
+| Method | Description |
 |---|---|
-| `mouse_and_keyboard` | Keyboard and mouse |
-| `touch_input` | Touch controls (phones, tablets) |
-| `gamepad` | Gamepad (DualSense, DualShock, Xbox controller, etc.) |
+| `static ChatManager getInstance()` | Get the singleton instance. |
+| `String formatMessage(String template, Player player, ChatType type, String message)` | Replaces all placeholders (including `%chat_type%` and `%message%`) and applies `&` colours. |
+| `String formatName(String template, Player player)` | Same as above but for name tags (no `%chat_type%` / `%message%`). |
+| `String getPlayerRank(UUID uuid)` | LuckPerms prefix (empty string if none). |
+| `String getPlayerTitle(UUID uuid)` | LuckPerms suffix (empty string if none). |
+| `String getPlayerHealth(Player player)` | Health as string. |
+| `String getPlayerGameMode(Player player)` | `Survival` / `Creative` / `Adventure` / `Spectator` / `Undefined`. |
+| `String[] getPlayerPosition(Player player, Boolean formatted)` | `formatted = false` → `{dimension, x, y, z}`; `true` → single-element array with `D: …, X: …, Y: …, Z: …`. |
+| `ChatType getMessageChatType(String message)` | `GLOBAL` if the message starts with the global symbol, otherwise `LOCAL`. |
+| `String removeGlobalChatSymbolFromMessage(String message)` | Strips the global symbol prefix. |
+| `String getGlobalChatSymbol()` / `void setGlobalChatSymbol(String symbol)` | Get/set the global chat symbol. |
+| `String getChatTypeDisplay(ChatType type)` / `void setChatTypeDisplay(ChatType type, String display)` | Get/set the `%chat_type%` label. |
+| `String getDeviceOsDisplay(DeviceOS os)` / `void setDeviceOsDisplay(DeviceOS os, String display)` | Get/set the `%device%` label per OS. |
+| `String getInputModeDisplay(InputMode mode)` / `void setInputModeDisplay(InputMode mode, String display)` | Get/set the `%input_mode%` label. |
 
-The plugin recognizes the "VR Controller" mode and shows it through `%inputmode%`, but it cannot be blocked in the config.
+### `ClientManager` / `ClientDatabase`
 
-**Example:** forbid playing with a gamepad:
-
-```yaml
-enable_inputmode_blocking: true
-blocked_inputmodes:
-  mouse_and_keyboard: false
-  touch_input: false
-  gamepad: true
-```
-
----
-
-## Punishments and messages
-
-### Punishment type
-
-```yaml
-punishment: "kick"
-```
-
-One value for **both** checks (device and input mode).
-
-| Value | What happens |
+| Method | Description |
 |---|---|
-| `"kick"` | The player is disconnected but can rejoin (default). |
-| `"ban"` | The player is banned **by nickname**. They can join again only after being pardoned. |
-| `"ipban"` | Ban by IP address. The player cannot join with another nickname or account from the same IP. |
-| `"xuidban"` | Ban by XUID (the unique ID of an Xbox account). Changing the nickname does not help. |
+| `static ClientManager getInstance()` | Get the singleton instance. |
+| `DeviceOS getPlayerDeviceOs(Player player)` | The player's device OS (`UNDEFINED` for `null`). |
+| `InputMode getPlayerInputMode(Player player)` | The player's current input mode (Nukkit's `InputMode`). |
+| `String getPlayerXUID(Player player)` | The player's XUID (empty string for `null`; empty for offline-mode/non-authenticated players). |
+| `void loadDatabaseFolder(String folder)` | Opens `database.db` in the given folder (called by the plugin on load). |
+| `Connection getConnection()` | The underlying SQLite connection. |
+| `boolean isDatabaseOpened()` | Whether the connection is open. |
+| `void banPlayerByXUID(String xuid) throws SQLException` | Add a XUID to the ban list (idempotent). |
+| `void unBanPlayerByXUID(String xuid) throws SQLException` | Remove a XUID from the ban list. |
+| `boolean isPlayerBannedByXUID(String xuid) throws SQLException` | Check whether a XUID is banned. |
+| `void closeDatabase(Boolean force)` | Closes the connection when `force == true`. |
 
-> ⚠️ The `xuidban` list is kept **in memory only** and is cleared when the server restarts.
+### Enums
 
-> ⚠️ The `punishment` value must be written exactly as in the table (lowercase). With any other value, no punishment is applied.
+```java
+public enum ChatType { UNDEFINED, LOCAL, GLOBAL }
 
-### Reason messages
-
-```yaml
-punishment_reason_for_device: "§cYou cannot join this server from this device!"
-punishment_reason_for_im: "§cYou cannot use this input device on this server!"
+public enum DeviceOS {
+    UNDEFINED, ANDROID, IOS, MACOS, FIRE, GEAR_VR, HOLOLENS, WINDOWS,
+    WINDOWS_X86, DEDICATED, TVOS, PLAYSTATION, SWITCH, XBOX, WINDOWS_PHONE, LINUX
+}
 ```
 
-| Option | When it is shown |
-|---|---|
-| `punishment_reason_for_device` | The player is punished for a banned **device** |
-| `punishment_reason_for_im` | The player is punished for a banned **input mode** |
+Both enums expose `getOrdinal()` and `fromOrdinal(int)`.
 
-You can use color codes (`§c`, `§l`, etc.). See [Colors and formatting](#colors-and-formatting).
+### Examples
 
-> ⚠️ In version 1.0.0, when a player is punished for input mode, the text from `punishment_reason_for_device` is shown, and `punishment_reason_for_im` is not used. If you enable input mode blocking, set a suitable text in `punishment_reason_for_device` or use a general wording.
+**Format a custom message using the plugin's placeholders**
+
+```java
+ChatManager chat = ChatManager.getInstance();
+
+String line = chat.formatMessage(
+    "%chat_type% &7| [%rank%&r] %player% &8-> &r%message%",
+    player,
+    ChatType.GLOBAL,
+    "Server restart in 5 minutes!"
+);
+getServer().broadcastMessage(line);
+```
+
+**Custom scoreboard / HUD text**
+
+```java
+String hud = ChatManager.getInstance().formatName(
+    "%player% &7| &a%health% HP &7| %position%", player);
+player.sendTip(hud);
+```
+
+**Change labels at runtime**
+
+```java
+ChatManager chat = ChatManager.getInstance();
+chat.setGlobalChatSymbol("@");
+chat.setChatTypeDisplay(ChatType.GLOBAL, "&b[World]");
+chat.setDeviceOsDisplay(DeviceOS.ANDROID, "&aAndroid");
+```
+
+**Ban / check a player by XUID from your own plugin**
+
+```java
+ClientManager client = ClientManager.getInstance();
+String xuid = client.getPlayerXUID(player);
+
+try {
+    client.banPlayerByXUID(xuid);
+    if (client.isPlayerBannedByXUID(xuid)) {
+        player.kick("You have been banned.");
+    }
+} catch (SQLException e) {
+    getLogger().error("Database error: " + e.getMessage());
+}
+```
+
+**Restrict a feature to desktop players**
+
+```java
+DeviceOS os = ClientManager.getInstance().getPlayerDeviceOs(player);
+boolean isMobile = os == DeviceOS.ANDROID || os == DeviceOS.IOS || os == DeviceOS.WINDOWS_PHONE;
+if (isMobile) {
+    player.sendMessage("This feature is not available on mobile.");
+}
+```
+
+### Building from source
+
+Requirements: JDK 17+, Maven 3.8+.
+
+```bash
+git clone https://github.com/whittte169/K3wtyChatManager.git
+cd K3wtyChatManager
+mvn clean package
+```
+
+The shaded jar is produced at `target/k3wtychatmanager-1.0.1.jar` (use this one, not `original-*.jar`).
+
+Dependencies are resolved from `https://repo.lanink.cn/repository/maven-public/` (Nukkit-MOT) and Maven Central (LuckPerms API, SQLite JDBC). Nukkit-MOT and LuckPerms are `provided`; SQLite JDBC is shaded.
+
+### Project structure
+
+```text
+src/main/
+├── java/com/white/k3wtychatmanager/
+│   ├── Main.java                  # Plugin entry point
+│   ├── ChatManagerHandler.java    # Chat event handling, name tags
+│   ├── ClientManagerHandler.java  # Join checks: XUID bans, device/input blocking
+│   ├── CommandManager.java        # /xuidban, /xuidpardon, /getxuid
+│   ├── ResourcePackManager.java   # Registers the bundled font pack
+│   └── api/
+│       ├── chat/   ChatManager, ChatType
+│       └── client/ ClientManager, ClientDatabase, DeviceOS
+└── resources/
+    ├── plugin.yml
+    ├── config.yml
+    └── font_pack.zip              # Device icon glyphs
+```
 
 ---
 
-## Exception list (`allow_players`)
+## Notes
 
-Nicknames of players who are **not** punished for a banned device:
+- **LuckPerms is required for some features.** Without it, ranks and titles (`%rank%`, `%title%`) are unavailable and chat formatting that relies on them will not work.
 
-```yaml
-allow_players:
-  - "NicknameExample"
-  - "AnotherPlayer"
-```
+## License
 
-Each nickname goes on its own line starting with `-`. Case matters: the nickname must match exactly.
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
-> ⚠️ In version 1.0.0 the exception list applies only to **device blocking**. It does not apply to input mode blocking.
+Author: [whittte169](https://github.com/whittte169)
 
----
-
-## NameTag (name above the head)
-
-The NameTag is the text above a player's head. It is updated once per second.
-
-### Enabling and disabling
-
-```yaml
-nametag_enabled: true
-```
-
-`true` — the plugin replaces the name above the head, `false` — the standard name is kept.
-
-### Format
-
-```yaml
-nametag_format: "[%privilege%§r] %player% §7| §r%device%\n  §c%health% HP §7|§r %ping%"
-```
-
-`\n` is a line break (works inside double quotes).
-
-| Placeholder | Value |
-|---|---|
-| `%player%` | Player's nickname |
-| `%privilege%` | Group prefix from LuckPerms |
-| `%device%` | Player's device (Android, iOS, Windows 10/11…) |
-| `%inputmode%` | Input mode (Keyboard and mouse, Touch input, Gamepad…) |
-| `%ping%` | Ping, for example `45ms` |
-| `%health%` | Health (whole number) |
-
-Result with the default settings:
-
-```
-[Admin] Steve | Windows 10/11
-  20 HP | 45ms
-```
-
----
-
-## Chat message format
-
-### Enabling and disabling
-
-```yaml
-displayname_enabled: true
-```
-
-`true` — the plugin formats chat messages itself and enables the local/global chat split. `false` — the plugin does not touch the chat and the server's standard format is used.
-
-### Format
-
-```yaml
-displayname_format: "%chat% [%privilege%§r] %player% §7> §r%message%"
-```
-
-| Placeholder | Value |
-|---|---|
-| `%player%` | Player's nickname |
-| `%privilege%` | Group prefix from LuckPerms |
-| `%device%` | Player's device |
-| `%ping%` | Player's ping |
-| `%chat%` | Chat type: **L** (local) or **G** (global) |
-| `%message%` | Message text |
-
-> `%inputmode%` and `%health%` are **not supported** in the chat format. They will be printed as is, including the percent signs.
-
-Example message with the default settings:
-
-```
-L [Admin] Steve > hello everyone
-G [Admin] Steve > hello whole server
-```
-
-Unknown placeholders are left in the text unchanged.
-
-### Where the prefix comes from
-
-`%privilege%` is the prefix of the player's **primary group** in LuckPerms. You can set it with this command:
-
-```
-/lp group <group> meta setprefix 100 "&c[Admin]"
-```
-
-If the group has no prefix, `%privilege%` is empty (with the default format you will get empty brackets `[]`).
-
----
-
-## Local and global chat
-
-Works while `displayname_enabled` is on.
-
-```yaml
-local_chat_enabled: true
-local_chat_radius: 25
-global_chat_symbol: "!"
-```
-
-| Option | Description |
-|---|---|
-| `local_chat_radius` | Local chat radius in blocks (whole number) |
-| `global_chat_symbol` | Symbol at the start of a message that makes it global |
-| `local_chat_enabled` | Reserved. Has no effect in version 1.0.0 |
-
-**How it works:**
-
-- A message **without** the symbol is local. Only players in the same world within `local_chat_radius` blocks can see it (the area is a cube around the player).
-- A message starting with `!` is global. Every player sees it, and the symbol is removed from the text.
-
-Examples (radius 25):
-
-| Player types | Who sees it |
-|---|---|
-| `hello` | Players within 25 blocks |
-| `!hello everyone` | The whole server |
-
-> ⚠️ It is recommended to keep `global_chat_symbol: "!"`. With a different symbol, it will not be removed from the text of a global message.
->
-> ⚠️ Do not use the `!` character in `displayname_format` before `%message%`.
-
----
-
-## Colors and formatting
-
-Texts in the config (NameTag, chat format, punishment reasons) use Minecraft formatting codes with the `§` symbol.
-
-| Code | Color | Code | Color |
-|---|---|---|---|
-| `§0` | Black | `§8` | Dark gray |
-| `§1` | Dark blue | `§9` | Blue |
-| `§2` | Dark green | `§a` | Green |
-| `§3` | Dark aqua | `§b` | Aqua |
-| `§4` | Dark red | `§c` | Red |
-| `§5` | Purple | `§d` | Pink |
-| `§6` | Gold | `§e` | Yellow |
-| `§7` | Gray | `§f` | White |
-
-Also: `§l` — bold, `§o` — italic, `§r` — reset formatting.
-
-Save `config.yml` in **UTF-8** encoding and keep strings containing `§` in quotes.
-
----
-
-## Important notes
-
-- A **server restart** is required after changing the config.
-- The device and input mode checks run **when a player joins** the server.
-- If both checks are enabled and the player's device is not banned, the input mode check may not run for that player in version 1.0.0. If you only need input mode blocking, keep `enable_device_blocking: false`.
-- Before enabling `ban`, `ipban`, or `xuidban`, test the settings with a separate test account so you do not block the wrong players. `kick` has no lasting consequences: the player can simply join from another device.
-
----
-
-## Author
-
-whittte169 · License: see the `LICENSE` file
+Repository: [github.com/whittte169/K3wtyChatManager](https://github.com/whittte169/K3wtyChatManager)
