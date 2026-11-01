@@ -33,3 +33,10 @@ message_format: "%chat_type% &7| &r[%rank%&r] %player% %title% &8&l-> &r%message
 
 enable_name_tag_change: true
 name_tag_format: "%device% &7| &r[%rank%&r] %player% %title%\n  &c%health% HP &7| &r%ping% ms"
+
+enable_anticaps: true
+
+enable_chat_cooldowns: true
+chat_cooldowns:
+  default: 3
+  vip: 1

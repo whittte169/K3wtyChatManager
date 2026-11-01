@@ -1,0 +1,42 @@
+enable_device_blocking: false
+blocked_devices:
+  mobile: false
+  desktop: false
+  console: false
+  other: false
+  undefined: false
+
+enable_input_mode_blocking: false
+blocked_input_modes:
+  mouse: false
+  touch: false
+  game_pad: false
+  motion_controller: false
+  count: false
+
+kick_reason: 
+  device: "You cannot use this device on this server!"
+  input_mode: "You cannot use this input mode on this server!"
+
+enable_chat_dividing: true
+
+local_chat_radius: 25
+
+global_chat_symbol: "!"
+
+chat_display:
+  local: "&6[L]"
+  global: "&c[G]"
+  undefined: "&7[U]"
+
+message_format: "%chat_type% &7| &r[%rank%&r] %player% %title% &8&l-> &r%message%"
+
+enable_name_tag_change: true
+name_tag_format: "%device% &7| &r[%rank%&r] %player% %title%\n  &c%health% HP &7| &r%ping% ms"
+
+enable_anticaps: true
+
+enable_chat_cooldowns: true
+chat_cooldowns:
+  default: 3
+  vip: 1

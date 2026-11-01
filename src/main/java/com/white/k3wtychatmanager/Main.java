@@ -35,17 +35,20 @@ public class Main extends PluginBase implements Listener, ClientManagerHandler, 
 
     @Override
     public void onEnable() {
-        INSTANCE = this;
-        saveDefaultConfig();
-        reloadConfig();
-        this.getServer().getPluginManager().registerEvents(this, (Plugin) this);
-        ResourcePackManager.register((Main) INSTANCE);
-        CommandManager.getInstance().registerCommands(INSTANCE);
-        updateNameTag();
-        checkInputMode();
-        this.getLogger().info("K3wtyChatManager has successfuly loaded!");
-        this.getLogger().info(TextFormat.GOLD + "MIT License");
-        this.getLogger().info("GitHub repository: " + TextFormat.GREEN + "https://github.com/whittte169/K3wtyChatManager");
+        try {
+            INSTANCE = this;
+            reloadConfigLabels();
+            this.getServer().getPluginManager().registerEvents(this, (Plugin) this);
+            ResourcePackManager.register((Main) INSTANCE);
+            CommandManager.getInstance().registerCommands(INSTANCE);
+            updateNameTag();
+            checkInputMode();
+            this.getLogger().info("K3wtyChatManager has successfuly loaded!");
+            this.getLogger().info(TextFormat.GOLD + "MIT License");
+            this.getLogger().info("GitHub repository: " + TextFormat.GREEN + "https://github.com/whittte169/K3wtyChatManager");
+        } catch (Exception e) {
+            this.getLogger().error("Failed to load K3wtyChatManager! " + e.getMessage());
+        }
     }
 
     @Override

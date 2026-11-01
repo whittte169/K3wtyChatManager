@@ -43,7 +43,9 @@ public class ClientManager implements ClientDatabase {
         this.folder = loadedFolder;
         try {
             this.database = openDatabase(this.folder);
-        } catch (SQLException e) {}
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 
     /**

@@ -3,13 +3,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Java 17](https://img.shields.io/badge/Java-17-orange)
 ![Platform](https://img.shields.io/badge/platform-Nukkit--MOT-green)
-![Version](https://img.shields.io/badge/version-1.0.1-informational)
+![Version](https://img.shields.io/badge/version-1.0.2-informational)
 
 A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Edition) servers.
 
 - **Local / global chat** – messages are local by default (radius-based); prefix a message with `!` to send it globally.
 - **Fully customizable chat format** with placeholders (rank, title, device, ping, health, position, …).
 - **Dynamic name tags** showing device icon, rank, health and ping.
+- **Mutes** – temporary, persistent mutes with a reason and the name of the admin who issued them. *(new in 1.0.2)*
+- **Anti-caps** – automatically lowercases shouting. *(new in 1.0.2)*
+- **Chat cooldowns** – per-rank anti-spam delay between messages. *(new in 1.0.2)*
 - **Device & input-mode blocking** – kick mobile / desktop / console players, or players using touch / mouse / gamepad.
 - **XUID bans** – ban players by their Xbox Live ID so name changes can't bypass the ban.
 - **Public API** (`ChatManager`, `ClientManager`, `ClientDatabase`) for other plugins.
@@ -18,10 +21,15 @@ A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Editi
 
 ## Table of contents
 
+- [What's new in 1.0.2](#whats-new-in-102)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Upgrading from 1.0.1](#upgrading-from-101)
 - [For server owners & players](#for-server-owners--players)
   - [Chat system](#chat-system)
+  - [Mutes](#mutes)
+  - [Anti-caps](#anti-caps)
+  - [Chat cooldowns](#chat-cooldowns)
   - [Commands](#commands)
   - [Permissions](#permissions)
   - [Configuration](#configuration)
@@ -43,6 +51,26 @@ A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Editi
 
 ---
 
+## What's new in 1.0.2
+
+**Features**
+
+- **Mute system** – new `/mute` and `/unmute` commands. Mutes are temporary, stored in the database and survive restarts.
+- **Anti-caps** – messages containing 3+ consecutive capital letters are lowercased (Latin and Cyrillic).
+- **Chat cooldowns** – configurable delay between messages, with per-rank overrides.
+- **Input-mode blocking is now continuous** – besides the check on connect, the plugin checks every player's current input mode once per second and kicks players who switch to a blocked mode while playing.
+- XUID bans now remember the player's **name**, so `/xuidpardon` can unban by name.
+
+**Changes**
+
+- `/xuidpardon` now takes a **player name** (the name that was used with `/xuidban`), not an XUID.
+- `banPlayerByXUID`, `unBanPlayerByXUID` and `isPlayerBannedByXUID` have a new signature taking both `xuid` and `name` (**API change**, see [ClientDatabase](#clientmanager--clientdatabase)).
+- New config keys: `enable_anticaps`, `enable_chat_cooldowns`, `chat_cooldowns`.
+- New permissions: `white.permissions.commands.mute`, `white.permissions.chat.caps`, `white.permissions.chat.spam`.
+- New database table: `muted_players`.
+
+---
+
 ## Requirements
 
 | Requirement | Version | Notes |
@@ -51,16 +79,23 @@ A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Editi
 | [Nukkit-MOT](https://github.com/MemoriesOfTime/Nukkit-MOT) | `1.26.50-R1` (build target) | Plugin API `1.0.0` |
 | [LuckPerms](https://luckperms.net/) | 5.5+ (Nukkit build) | **Required** – ranks and titles are read from LuckPerms prefixes/suffixes. Chat formatting calls `LuckPermsProvider.get()`, so LuckPerms must be installed and loaded. |
 
-SQLite JDBC is bundled (shaded) into the plugin jar — nothing else to install.
+SQLite JDBC (`3.46.1.0`) is bundled (shaded) into the plugin jar — nothing else to install.
 
 ## Installation
 
 1. Install **LuckPerms** on your Nukkit-MOT server.
-2. Download `k3wtychatmanager-<version>.jar` from the [Releases](https://github.com/whittte169/K3wtyChatManager/releases) page and put it into the server's `plugins/` folder.
+2. Download `k3wtychatmanager-1.0.2.jar` from the [Releases](https://github.com/whittte169/K3wtyChatManager/releases) page and put it into the server's `plugins/` folder.
 3. Start the server. The plugin will generate `plugins/K3wtyChatManager/config.yml`.
 4. Edit the config to your liking and restart the server.
 
 On every start the plugin also extracts and registers a bundled **font resource pack** (`font_pack.zip`) that provides the device icons used in name tags / chat. Players will be asked to download the pack when joining.
+
+## Upgrading from 1.0.1
+
+1. Stop the server and replace the old jar with `k3wtychatmanager-1.0.2.jar`.
+2. **Add the new options to your existing `config.yml`.** The plugin does not merge new keys into an existing config file (the built-in defaults still apply when a key is missing, so everything keeps working). To get the new keys, either copy them from the [Configuration](#configuration) section below or delete `config.yml` and let the plugin regenerate it.
+3. Bans created in 1.0.1 are kept, but they have no stored player name, so `/xuidpardon <name>` cannot remove them. Remove those rows directly in the database (by `xuid`) or re-ban the player.
+4. Plugins that use the ban methods of the API must be updated to the new method signatures (see [For developers](#for-developers)).
 
 ---
 
@@ -81,15 +116,59 @@ Notes:
 - Empty messages (after removing the symbol) are ignored.
 - Local messages are also written to the server console log.
 - Players **without** the `white.permissions.chat.color` permission have colour/formatting codes (`&a`, `§c`, …) stripped from their messages.
-- If `enable_chat_dividing` is `false`, the plugin does not touch chat and the server default is used.
+- If `enable_chat_dividing` is `false`, the plugin does not touch chat and the server default is used. In that mode **anti-caps and chat cooldowns are not applied either**, but mutes still are.
+
+Order in which a message is processed: mute check → cooldown → anti-caps → colour handling → channel detection → delivery.
+
+### Mutes
+
+Muted players cannot send chat messages. Mutes:
+
+- last for the duration you specify (`w`eeks, `d`ays, `h`ours, `m`inutes, `s`econds — combine freely, e.g. `1w2d`, `5h30m`, `90s`);
+- are saved in the database, so they persist across restarts and relogging;
+- expire automatically; an expired mute is removed the next time it is checked;
+- are applied by **player name**;
+- work regardless of `enable_chat_dividing`.
+
+When a player is muted, they receive a message with the reason, duration and the admin's name, and the mute is broadcast to the whole server. A muted player who tries to chat sees `You're muted!`.
+
+> Both `/mute` and `/unmute` currently only work for **online** players.
+
+### Anti-caps
+
+When `enable_anticaps` is `true` (default), any message containing **three or more consecutive capital letters** (A–Z or А–Я/Ё) is converted to lowercase entirely. For example `HELLO everyone` becomes `hello everyone`, while `Hi, I'm OK` is left untouched.
+
+Players with `white.permissions.chat.caps` are exempt.
+
+### Chat cooldowns
+
+When `enable_chat_cooldowns` is `true` (default), players must wait between messages. A player who writes too early gets `Wait Ns to send message!` and the message is not sent.
+
+- `chat_cooldowns.default` is the delay in seconds for everyone (default `3`).
+- Any other key under `chat_cooldowns` is a **rank override**. The key must be exactly equal to the player's LuckPerms **prefix** string (the same value `%rank%` shows, in its raw form, including `&` colour codes). Quote keys that contain special YAML characters:
+
+  ```yaml
+  chat_cooldowns:
+    default: 3
+    "&c[Admin]": 0   # note: 0 is ignored, see below
+    "&6[VIP]": 1
+  ```
+
+- An override of `0` or less is ignored (the default is used). To remove the cooldown for a group entirely, give it the `white.permissions.chat.spam` permission instead.
+
+Players with `white.permissions.chat.spam` are exempt.
 
 ### Commands
 
 | Command | Aliases | Description | Permission |
 |---|---|---|---|
 | `/xuidban <target> [reason]` | – | Bans an **online** player by their XUID and kicks them. The ban is stored in the database, so it persists across restarts and name changes. | `white.permissions.commands.xuidban` |
-| `/xuidpardon <xuid>` | `/xuidunban` | Removes a XUID from the ban list. Takes the **XUID** (not the player name). | `white.permissions.commands.xuidban` |
-| `/getxuid <target>` | – | Prints the XUID of an **online** player. Use it to find the value for `/xuidpardon`. | `white.permissions.commands.xuidban` |
+| `/xuidpardon <name>` | `/xuidunban` | Removes a ban created by `/xuidban`. Takes the **player name** that was used when banning (not the XUID). | `white.permissions.commands.xuidban` |
+| `/getxuid <target>` | – | Prints the XUID of an **online** player. | `white.permissions.commands.xuidban` |
+| `/mute <target> <time> [reason]` | – | Mutes an **online** player for `<time>` (e.g. `30m`, `2d`, `1h30m`). | `white.permissions.commands.mute` |
+| `/unmute <target>` | – | Removes a mute from an **online** player. | `white.permissions.commands.mute` |
+
+Time format for `/mute`: one or more `<number><unit>` groups, no spaces. Units: `w` = week, `d` = day, `h` = hour, `m` = minute, `s` = second. The total must be greater than zero.
 
 Examples:
 
@@ -100,24 +179,35 @@ Examples:
 /xuidban Steve griefing
 > Steve was banned by XUID
 
-/xuidpardon 2535412345678901
-> 2535412345678901 was unbanned by XUID
+/xuidpardon Steve
+> Steve was unbanned
+
+/mute Steve 2h30m spamming
+> Steve was muted
+
+/unmute Steve
+> Steve was unmuted
 ```
 
-> Commands can be run by players and from the console. Commands are also registered with the fallback prefix `k3wtychatmanager` (e.g. `/k3wtychatmanager:xuidban`).
+> Commands can be run by players and from the console. Commands are also registered with the fallback prefix `k3wtychatmanager` (e.g. `/k3wtychatmanager:mute`).
 
 ### Permissions
 
 | Permission | Default | Description |
 |---|---|---|
 | `white.permissions.commands.xuidban` | `op` | Use `/xuidban`, `/xuidpardon` and `/getxuid`. |
+| `white.permissions.commands.mute` | `op` | Use `/mute` and `/unmute`. |
 | `white.permissions.chat.color` | `op` | Use colour codes in chat messages. |
+| `white.permissions.chat.caps` | `op` | Bypass anti-caps. |
+| `white.permissions.chat.spam` | `op` | Bypass chat cooldowns. |
 
 Grant them with LuckPerms, e.g.:
 
 ```text
 /lp group moderator permission set white.permissions.commands.xuidban true
+/lp group moderator permission set white.permissions.commands.mute true
 /lp group vip permission set white.permissions.chat.color true
+/lp group vip permission set white.permissions.chat.spam true
 ```
 
 ### Configuration
@@ -162,6 +252,15 @@ message_format: "%chat_type% &7| &r[%rank%&r] %player% %title% &8&l-> &r%message
 # ---- Name tags ----
 enable_name_tag_change: true
 name_tag_format: "%device% &7| &r[%rank%&r] %player% %title%\n  &c%health% HP &7| &r%ping% ms"
+
+# ---- Anti-caps (new in 1.0.2) ----
+enable_anticaps: true
+
+# ---- Chat cooldowns (new in 1.0.2) ----
+enable_chat_cooldowns: true
+chat_cooldowns:
+  default: 3         # seconds, applies to everyone
+  vip: 1             # rank override: key = LuckPerms prefix of the player
 ```
 
 | Option | Type | Description |
@@ -171,15 +270,21 @@ name_tag_format: "%device% &7| &r[%rank%&r] %player% %title%\n  &c%health% HP &7
 | `enable_input_mode_blocking` | boolean | Master switch for input-mode blocking. |
 | `blocked_input_modes.*` | boolean | Set a mode to `true` to kick players using it. |
 | `kick_reason.device` / `kick_reason.input_mode` | string | Message shown to a kicked player. |
-| `enable_chat_dividing` | boolean | Enable the local/global chat system and custom format. |
+| `enable_chat_dividing` | boolean | Enable the local/global chat system and custom format (also required for anti-caps and cooldowns). |
 | `local_chat_radius` | number | Radius (in blocks) of local chat. |
 | `global_chat_symbol` | string | Prefix that makes a message global. May be more than one character. |
 | `chat_display.*` | string | Text for the `%chat_type%` placeholder per channel. Supports `&` colour codes. |
 | `message_format` | string | Template for chat messages. See [Placeholders](#placeholders). |
-| `enable_name_tag_change` | boolean | Enable custom name tags. |
+| `enable_name_tag_change` | boolean | Enable custom name tags (refreshed every second). |
 | `name_tag_format` | string | Template for name tags (use `\n` for a new line). |
+| `enable_anticaps` | boolean | Lowercase messages with 3+ consecutive capital letters. |
+| `enable_chat_cooldowns` | boolean | Enable the delay between messages. |
+| `chat_cooldowns.default` | number (seconds) | Default cooldown. |
+| `chat_cooldowns.<rank>` | number (seconds) | Cooldown for players whose LuckPerms prefix equals `<rank>`. Values ≤ 0 are ignored. |
 
 Colour codes use `&` (e.g. `&6` = gold, `&l` = bold, `&r` = reset).
+
+Config changes are applied after a server restart.
 
 ### Placeholders
 
@@ -193,7 +298,7 @@ Placeholders are written between percent signs and can be used in `message_forma
 | `%rank%` | both | LuckPerms **prefix** | `&4Admin` |
 | `%title%` | both | LuckPerms **suffix** | `&7the Builder` |
 | `%device%` | both | Device icon glyph (from the font pack) for mobile / desktop / console; `Other` / `Undefined` as text | custom glyph in-game |
-| `%input_mode%` | both | `Mouse and keyboard` / `Game pad` | `Game pad` |
+| `%input_mode%` | both | `Mouse and keyboard` / `Game pad`; `Undefined` for any other mode | `Game pad` |
 | `%health%` | both | Current health | `20.0` |
 | `%ping%` | both | Ping in ms | `42` |
 | `%gamemode%` | both | `Survival`, `Creative`, `Adventure`, `Spectator` | `Survival` |
@@ -211,9 +316,14 @@ Placeholders are written between percent signs and can be used in `message_forma
 /lp user Steve meta setsuffix 10 "&7the Builder"
 ```
 
+The rank is also what the [chat cooldown](#chat-cooldowns) overrides are matched against.
+
 ### Device & input mode blocking
 
-Checks are performed when a player connects (pre-login). Typical use cases:
+- **Device blocking** is checked when a player connects (pre-login).
+- **Input-mode blocking** is checked when a player connects **and then once per second** while they are online, so a player who switches to a blocked input mode is kicked.
+
+Typical use cases:
 
 - Make a **PC-only** server: set `enable_device_blocking: true` and `mobile: true`, `console: true`.
 - Block **touch controls** on a competitive server: set `enable_input_mode_blocking: true` and `touch: true`.
@@ -230,13 +340,18 @@ Device groups:
 
 ### Data storage
 
-XUID bans are stored in an SQLite database at:
+Bans and mutes are stored in an SQLite database at:
 
 ```text
 plugins/K3wtyChatManager/database.db
 ```
 
-Table: `banned_players_by_xuid (xuid TEXT PRIMARY KEY)`. Back this file up if you want to keep your ban list.
+| Table | Columns | Purpose |
+|---|---|---|
+| `banned_players_by_xuid` | `xuid TEXT PRIMARY KEY`, `name TEXT` | XUID bans |
+| `muted_players` | `name TEXT PRIMARY KEY`, `time INTEGER`, `reason TEXT`, `admin TEXT` | Mutes. `time` is the **expiry** as a Unix timestamp in milliseconds. |
+
+Back this file up if you want to keep your ban and mute lists.
 
 ---
 
@@ -256,7 +371,7 @@ Then add the jar to your build. With Maven (local jar, `provided` scope):
 <dependency>
   <groupId>com.white</groupId>
   <artifactId>k3wtychatmanager</artifactId>
-  <version>1.0.1</version>
+  <version>1.0.2</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -264,8 +379,8 @@ Then add the jar to your build. With Maven (local jar, `provided` scope):
 Install it into your local repository first:
 
 ```bash
-mvn install:install-file -Dfile=k3wtychatmanager-1.0.1.jar \
-  -DgroupId=com.white -DartifactId=k3wtychatmanager -Dversion=1.0.1 -Dpackaging=jar
+mvn install:install-file -Dfile=k3wtychatmanager-1.0.2.jar \
+  -DgroupId=com.white -DartifactId=k3wtychatmanager -Dversion=1.0.2 -Dpackaging=jar
 ```
 
 Or build it yourself (`mvn clean install`) — see [Building from source](#building-from-source).
@@ -276,8 +391,8 @@ Or build it yourself (`mvn clean install`) — see [Building from source](#build
 |---|---|---|
 | `ChatManager` | `com.white.k3wtychatmanager.api.chat` | Placeholder formatting, chat-type detection, rank/title lookup, display settings. Singleton. |
 | `ChatType` | `com.white.k3wtychatmanager.api.chat` | Enum: `UNDEFINED`, `LOCAL`, `GLOBAL`. |
-| `ClientManager` | `com.white.k3wtychatmanager.api.client` | Device OS, input mode, XUID and XUID-ban helpers. Singleton, implements `ClientDatabase`. |
-| `ClientDatabase` | `com.white.k3wtychatmanager.api.client` | SQLite-backed XUID ban storage (interface with default methods). |
+| `ClientManager` | `com.white.k3wtychatmanager.api.client` | Device OS, input mode and XUID helpers. Singleton, implements `ClientDatabase`. |
+| `ClientDatabase` | `com.white.k3wtychatmanager.api.client` | SQLite-backed storage for XUID bans and mutes (interface with default methods). |
 | `DeviceOS` | `com.white.k3wtychatmanager.api.client` | Enum of Bedrock device operating systems. |
 
 Both managers are singletons:
@@ -308,19 +423,44 @@ ClientManager client = ClientManager.getInstance();
 
 ### `ClientManager` / `ClientDatabase`
 
+`ClientManager` implements `ClientDatabase`, so all database methods are available directly on `ClientManager.getInstance()`.
+
+**Client information**
+
 | Method | Description |
 |---|---|
 | `static ClientManager getInstance()` | Get the singleton instance. |
 | `DeviceOS getPlayerDeviceOs(Player player)` | The player's device OS (`UNDEFINED` for `null`). |
-| `InputMode getPlayerInputMode(Player player)` | The player's current input mode (Nukkit's `InputMode`). |
+| `InputMode getPlayerInputMode(Player player)` | The player's input mode as reported at login (Nukkit's `InputMode`). |
 | `String getPlayerXUID(Player player)` | The player's XUID (empty string for `null`; empty for offline-mode/non-authenticated players). |
-| `void loadDatabaseFolder(String folder)` | Opens `database.db` in the given folder (called by the plugin on load). |
+
+**Database**
+
+| Method | Description |
+|---|---|
+| `void loadDatabaseFolder(String folder)` | Opens `database.db` in the given folder and creates the tables (called by the plugin on load). |
 | `Connection getConnection()` | The underlying SQLite connection. |
 | `boolean isDatabaseOpened()` | Whether the connection is open. |
-| `void banPlayerByXUID(String xuid) throws SQLException` | Add a XUID to the ban list (idempotent). |
-| `void unBanPlayerByXUID(String xuid) throws SQLException` | Remove a XUID from the ban list. |
-| `boolean isPlayerBannedByXUID(String xuid) throws SQLException` | Check whether a XUID is banned. |
 | `void closeDatabase(Boolean force)` | Closes the connection when `force == true`. |
+
+**XUID bans** *(signatures changed in 1.0.2)*
+
+| Method | Description |
+|---|---|
+| `void banPlayerByXUID(String xuid, String name) throws SQLException` | Add a XUID (with the player's name) to the ban list. Does nothing if `xuid` is `null`/empty; idempotent. |
+| `void unBanPlayerByXUID(String xuid, String name) throws SQLException` | Remove a ban. If `xuid` is non-null it is used; otherwise the ban is looked up by `name`. Pass `null` for the one you don't have. |
+| `boolean isPlayerBannedByXUID(String xuid, String name) throws SQLException` | Check whether a ban exists. If `xuid` is non-null it is used; otherwise `name` is used. |
+
+**Mutes** *(new in 1.0.2)*
+
+| Method | Description |
+|---|---|
+| `void mutePlayer(String name, int time, String reason, String admin) throws SQLException` | Mute `name` for `time` **seconds**. Replaces an existing mute. `null` reason → `"No reason"`, `null` admin → `"Console"`. |
+| `void unMutePlayer(String name) throws SQLException` | Remove the mute. |
+| `boolean isPlayerMuted(String name) throws SQLException` | `true` if the player has an active mute. Expired mutes are deleted and return `false`. |
+| `String[] getPlayerMuteInfo(String name) throws SQLException` | `{name, remainingSeconds, reason, admin}` for an active mute, or `{name}` if the player isn't muted. |
+
+> Player names are compared **case-sensitively** in the mute and name-based ban queries. Use `player.getName()`.
 
 ### Enums
 
@@ -375,10 +515,32 @@ ClientManager client = ClientManager.getInstance();
 String xuid = client.getPlayerXUID(player);
 
 try {
-    client.banPlayerByXUID(xuid);
-    if (client.isPlayerBannedByXUID(xuid)) {
+    client.banPlayerByXUID(xuid, player.getName());
+    if (client.isPlayerBannedByXUID(xuid, player.getName())) {
         player.kick("You have been banned.");
     }
+    // later: unban by name only
+    client.unBanPlayerByXUID(null, player.getName());
+} catch (SQLException e) {
+    getLogger().error("Database error: " + e.getMessage());
+}
+```
+
+**Mute a player for 10 minutes and read the mute info**
+
+```java
+ClientManager client = ClientManager.getInstance();
+
+try {
+    client.mutePlayer(player.getName(), 600, "Advertising", "AutoMod");
+
+    if (client.isPlayerMuted(player.getName())) {
+        String[] info = client.getPlayerMuteInfo(player.getName());
+        // info[0] = name, info[1] = seconds left, info[2] = reason, info[3] = admin
+        player.sendMessage("Muted for " + info[1] + "s: " + info[2]);
+    }
+
+    client.unMutePlayer(player.getName());
 } catch (SQLException e) {
     getLogger().error("Database error: " + e.getMessage());
 }
@@ -404,7 +566,7 @@ cd K3wtyChatManager
 mvn clean package
 ```
 
-The shaded jar is produced at `target/k3wtychatmanager-1.0.1.jar` (use this one, not `original-*.jar`).
+The shaded jar is produced at `target/k3wtychatmanager-1.0.2.jar` (use this one, not `original-*.jar`).
 
 Dependencies are resolved from `https://repo.lanink.cn/repository/maven-public/` (Nukkit-MOT) and Maven Central (LuckPerms API, SQLite JDBC). Nukkit-MOT and LuckPerms are `provided`; SQLite JDBC is shaded.
 
@@ -414,9 +576,9 @@ Dependencies are resolved from `https://repo.lanink.cn/repository/maven-public/`
 src/main/
 ├── java/com/white/k3wtychatmanager/
 │   ├── Main.java                  # Plugin entry point
-│   ├── ChatManagerHandler.java    # Chat event handling, name tags
-│   ├── ClientManagerHandler.java  # Join checks: XUID bans, device/input blocking
-│   ├── CommandManager.java        # /xuidban, /xuidpardon, /getxuid
+│   ├── ChatManagerHandler.java    # Chat event handling: mutes, cooldowns, anti-caps, local/global chat, name tags
+│   ├── ClientManagerHandler.java  # Pre-login checks: XUID bans, device/input blocking; input-mode watcher
+│   ├── CommandManager.java        # /xuidban, /xuidpardon, /getxuid, /mute, /unmute
 │   ├── ResourcePackManager.java   # Registers the bundled font pack
 │   └── api/
 │       ├── chat/   ChatManager, ChatType
@@ -431,7 +593,7 @@ src/main/
 
 ## Notes
 
-- **LuckPerms is required for some features.** Without it, ranks and titles (`%rank%`, `%title%`) are unavailable and chat formatting that relies on them will not work.
+- **LuckPerms is required for some features.** Without it, ranks and titles (`%rank%`, `%title%`) are unavailable and chat formatting that relies on them will not work. Rank-based chat cooldowns also depend on it.
 
 ## License
 

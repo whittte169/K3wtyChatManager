@@ -2,9 +2,16 @@ package com.white.k3wtychatmanager;
 
 import cn.nukkit.event.EventHandler;
 import cn.nukkit.event.player.PlayerPreLoginEvent;
+import cn.nukkit.event.player.PlayerQuitEvent;
+import cn.nukkit.event.server.DataPacketReceiveEvent;
+import cn.nukkit.network.protocol.DataPacket;
+import cn.nukkit.network.protocol.PlayerAuthInputPacket;
 import cn.nukkit.plugin.Plugin;
 
 import java.util.Arrays;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.white.k3wtychatmanager.api.client.ClientManager;
 import com.white.k3wtychatmanager.api.client.DeviceOS;
@@ -22,6 +29,7 @@ import cn.nukkit.network.protocol.types.InputMode;
  * 
  */
 public interface ClientManagerHandler {
+    Map<UUID, InputMode> currentInputModes = new ConcurrentHashMap<>();
     Plugin getPlugin();
 
     @EventHandler
@@ -30,7 +38,7 @@ public interface ClientManagerHandler {
         Player player = event.getPlayer();
         String XUID = clientManager.getPlayerXUID(player);
         try {
-            if (clientManager.isPlayerBannedByXUID(XUID)) {
+            if (clientManager.isPlayerBannedByXUID(XUID, player.getName())) {
                 player.kick("You're banned!");
                 return;
             }
@@ -108,34 +116,43 @@ public interface ClientManagerHandler {
         }
     }
     
+    @EventHandler
+    default void onInputPacket(DataPacketReceiveEvent event) {
+        DataPacket packet = event.getPacket();
+        if (!(packet instanceof PlayerAuthInputPacket)) return;
+        InputMode mode = ((PlayerAuthInputPacket) packet).getInputMode();
+        if (mode == null) return;
+        currentInputModes.put(event.getPlayer().getUniqueId(), mode);
+    }
+
+    @EventHandler
+    default void onInputQuit(PlayerQuitEvent event) {
+        currentInputModes.remove(event.getPlayer().getUniqueId());
+    }
+
+    default boolean isInputModeBlocked(Config config, InputMode mode) {
+        if (mode == null) return false;
+        switch (mode) {
+            case MOUSE: return config.getBoolean("blocked_input_modes.mouse", false);
+            case TOUCH: return config.getBoolean("blocked_input_modes.touch", false);
+            case GAME_PAD: return config.getBoolean("blocked_input_modes.game_pad", false);
+            case MOTION_CONTROLLER: return config.getBoolean("blocked_input_modes.motion_controller", false);
+            case COUNT: return config.getBoolean("blocked_input_modes.count", false);
+            default: return false;
+        }
+    }
+
     default void checkInputMode() {
-        Config config = getPlugin().getConfig();
         ClientManager clientManager = ClientManager.getInstance();
         getPlugin().getServer().getScheduler().scheduleRepeatingTask(getPlugin(), () -> {
+            Config config = getPlugin().getConfig();
+            if (!config.getBoolean("enable_input_mode_blocking", false)) return;
+            String kickReason = config.getString("kick_reason.input_mode", "You cannot use this input mode on this server!");
             for (Player player : getPlugin().getServer().getOnlinePlayers().values()) {
-                InputMode playerInputMode = clientManager.getPlayerInputMode(player);
-                if (config.getBoolean("enable_input_mode_blocking", false)) {
-                    String kickReason = config.getString("kick_reason.input_mode", "You cannot use this input mode on this server!");
-                    if (config.getBoolean("blocked_input_modes.mouse", false) && playerInputMode.equals(InputMode.MOUSE)) {
-                        player.kick(kickReason);
-                        return;
-                    }
-                    if (config.getBoolean("blocked_input_modes.touch", false) && playerInputMode.equals(InputMode.TOUCH)) {
-                        player.kick(kickReason);
-                        return;
-                    }
-                    if (config.getBoolean("blocked_input_modes.game_pad", false) && playerInputMode.equals(InputMode.GAME_PAD)) {
-                        player.kick(kickReason);
-                        return;
-                    }
-                    if (config.getBoolean("blocked_input_modes.motion_controller", false) && playerInputMode.equals(InputMode.MOTION_CONTROLLER)) {
-                        player.kick(kickReason);
-                        return;
-                    }
-                    if (config.getBoolean("blocked_input_modes.count", false) && playerInputMode.equals(InputMode.COUNT)) {
-                        player.kick(kickReason);
-                        return;
-                    }
+                InputMode mode = currentInputModes.get(player.getUniqueId());
+                if (mode == null) mode = clientManager.getPlayerInputMode(player);
+                if (isInputModeBlocked(config, mode)) {
+                    player.kick(kickReason);
                 }
             }
         }, 20);
