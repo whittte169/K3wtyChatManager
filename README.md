@@ -3,28 +3,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Java 17](https://img.shields.io/badge/Java-17-orange)
 ![Platform](https://img.shields.io/badge/platform-Nukkit--MOT-green)
-![Version](https://img.shields.io/badge/version-1.0.2-informational)
+![Version](https://img.shields.io/badge/version-1.0.3-informational)
 
 A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Edition) servers.
 
 - **Local / global chat** – messages are local by default (radius-based); prefix a message with `!` to send it globally.
 - **Fully customizable chat format** with placeholders (rank, title, device, ping, health, position, …).
 - **Dynamic name tags** showing device icon, rank, health and ping.
-- **Mutes** – temporary, persistent mutes with a reason and the name of the admin who issued them. *(new in 1.0.2)*
-- **Anti-caps** – automatically lowercases shouting. *(new in 1.0.2)*
-- **Chat cooldowns** – per-rank anti-spam delay between messages. *(new in 1.0.2)*
+- **Mutes** – temporary, persistent mutes with a reason and the name of the admin who issued them.
+- **Anti-caps** – automatically lowercases shouting.
+- **Chat cooldowns** – per-rank anti-spam delay between messages.
 - **Device & input-mode blocking** – kick mobile / desktop / console players, or players using touch / mouse / gamepad.
-- **XUID bans** – ban players by their Xbox Live ID so name changes can't bypass the ban.
+- **XUID bans** – timed bans tied to a player's Xbox Live ID, with a reason and the admin's name, so name changes can't bypass the ban. *(timed bans new in 1.0.3)*
+- **Device ID bans** – timed bans tied to a player's device ID, with a reason and the admin's name, so name changes can't bypass the ban. *(new in 1.0.3)*
 - **Public API** (`ChatManager`, `ClientManager`, `ClientDatabase`) for other plugins.
 
 ---
 
 ## Table of contents
 
-- [What's new in 1.0.2](#whats-new-in-102)
+- [What's new in 1.0.3](#whats-new-in-103)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Upgrading from 1.0.1](#upgrading-from-101)
+- [Upgrading from 1.0.2](#upgrading-from-102)
 - [For server owners & players](#for-server-owners--players)
   - [Chat system](#chat-system)
   - [Mutes](#mutes)
@@ -35,6 +36,7 @@ A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Editi
   - [Configuration](#configuration)
   - [Placeholders](#placeholders)
   - [Ranks and titles (LuckPerms)](#ranks-and-titles-luckperms)
+  - [Bans (XUID & device ID)](#bans-xuid--device-id)
   - [Device & input mode blocking](#device--input-mode-blocking)
   - [Data storage](#data-storage)
 - [For developers](#for-developers)
@@ -51,23 +53,24 @@ A chat and client management plugin for **Nukkit-MOT** (Minecraft: Bedrock Editi
 
 ---
 
-## What's new in 1.0.2
+## What's new in 1.0.3
 
 **Features**
 
-- **Mute system** – new `/mute` and `/unmute` commands. Mutes are temporary, stored in the database and survive restarts.
-- **Anti-caps** – messages containing 3+ consecutive capital letters are lowercased (Latin and Cyrillic).
-- **Chat cooldowns** – configurable delay between messages, with per-rank overrides.
-- **Input-mode blocking is now continuous** – besides the check on connect, the plugin checks every player's current input mode once per second and kicks players who switch to a blocked mode while playing.
-- XUID bans now remember the player's **name**, so `/xuidpardon` can unban by name.
+- **Device ID bans** – new `/deviceban`, `/devicepardon` (alias `/deviceunban`) and `/getdeviceid` commands. Bans are stored in the database and survive restarts.
+- **Timed XUID bans** – `/xuidban` now requires a duration and stores the expiry time, the reason and the admin's name. Expired bans are removed automatically.
+- **Ban checks on connect** – the pre-login check now looks at both XUID bans and device ID bans.
+- **Live input-mode tracking** – the plugin now reads the current input mode from the player's input packets, so input-mode blocking reacts when a player switches input mode (e.g. touch to gamepad) mid-session.
+- New permission: `white.permissions.commands.deviceban`.
+- New database table: `banned_players_by_device`.
 
 **Changes**
 
-- `/xuidpardon` now takes a **player name** (the name that was used with `/xuidban`), not an XUID.
-- `banPlayerByXUID`, `unBanPlayerByXUID` and `isPlayerBannedByXUID` have a new signature taking both `xuid` and `name` (**API change**, see [ClientDatabase](#clientmanager--clientdatabase)).
-- New config keys: `enable_anticaps`, `enable_chat_cooldowns`, `chat_cooldowns`.
-- New permissions: `white.permissions.commands.mute`, `white.permissions.chat.caps`, `white.permissions.chat.spam`.
-- New database table: `muted_players`.
+- `/xuidban` syntax changed from `/xuidban <target> [reason]` to `/xuidban <target> <time> [reason]` (**breaking for scripts and command blocks**).
+- The `banned_players_by_xuid` table has new columns: `time`, `reason`, `admin`. **The old database must be deleted** and is recreated automatically, see [Upgrading from 1.0.2](#upgrading-from-102).
+- `banPlayerByXUID` has a new signature `(xuid, name, time, reason, admin)` (**API change**, see [ClientDatabase](#clientmanager--clientdatabase)).
+- New API methods: `getPlayerXUIDBanInfo`, `banPlayerByDeviceId`, `unBanPlayerByDeviceId`, `isPlayerBannedByDeviceId`, `getPlayerDeviceIdBanInfo` and `ClientManager#getPlayerDeviceId`.
+- No new `config.yml` keys.
 
 ---
 
@@ -84,18 +87,26 @@ SQLite JDBC (`3.46.1.0`) is bundled (shaded) into the plugin jar — nothing els
 ## Installation
 
 1. Install **LuckPerms** on your Nukkit-MOT server.
-2. Download `k3wtychatmanager-1.0.2.jar` from the [Releases](https://github.com/whittte169/K3wtyChatManager/releases) page and put it into the server's `plugins/` folder.
+2. Download `k3wtychatmanager-1.0.3.jar` from the [Releases](https://github.com/whittte169/K3wtyChatManager/releases) page and put it into the server's `plugins/` folder.
 3. Start the server. The plugin will generate `plugins/K3wtyChatManager/config.yml`.
 4. Edit the config to your liking and restart the server.
 
 On every start the plugin also extracts and registers a bundled **font resource pack** (`font_pack.zip`) that provides the device icons used in name tags / chat. Players will be asked to download the pack when joining.
 
-## Upgrading from 1.0.1
+## Upgrading from 1.0.2
 
-1. Stop the server and replace the old jar with `k3wtychatmanager-1.0.2.jar`.
-2. **Add the new options to your existing `config.yml`.** The plugin does not merge new keys into an existing config file (the built-in defaults still apply when a key is missing, so everything keeps working). To get the new keys, either copy them from the [Configuration](#configuration) section below or delete `config.yml` and let the plugin regenerate it.
-3. Bans created in 1.0.1 are kept, but they have no stored player name, so `/xuidpardon <name>` cannot remove them. Remove those rows directly in the database (by `xuid`) or re-ban the player.
-4. Plugins that use the ban methods of the API must be updated to the new method signatures (see [For developers](#for-developers)).
+1. Stop the server and replace the old jar with `k3wtychatmanager-1.0.3.jar`.
+2. **Delete the old database.** 1.0.3 stores an expiry time, a reason and the admin's name for every ban, so the database format has changed and the old file is not compatible. This step is **mandatory**: stop the server, delete `plugins/K3wtyChatManager/database.db`, then start the server – the plugin automatically creates a new database with the correct tables.
+
+   > **Warning:** Deleting the database also removes all existing **bans and mutes**. If you need them, write them down first (e.g. with `sqlite3 plugins/K3wtyChatManager/database.db "SELECT * FROM banned_players_by_xuid;"`) and re-issue them with `/xuidban`, `/deviceban` and `/mute` after the update.
+
+   If you keep the old database, `/xuidban` and XUID ban checks will fail with a database error.
+3. Update any scripts, command blocks or automation that call `/xuidban` – it now needs a duration (e.g. `/xuidban Steve 7d griefing`).
+4. Plugins that call `banPlayerByXUID` must be updated to the new signature (see [For developers](#for-developers)).
+5. `config.yml` is unchanged – no new keys are required.
+6. Grant `white.permissions.commands.deviceban` to staff who should use the device ID commands (it defaults to `op`).
+
+Upgrading from 1.0.1 or older? Follow the 1.0.2 notes in [CHANGELOG.md](CHANGELOG.md) first (new config keys and the `muted_players` table).
 
 ---
 
@@ -162,13 +173,16 @@ Players with `white.permissions.chat.spam` are exempt.
 
 | Command | Aliases | Description | Permission |
 |---|---|---|---|
-| `/xuidban <target> [reason]` | – | Bans an **online** player by their XUID and kicks them. The ban is stored in the database, so it persists across restarts and name changes. | `white.permissions.commands.xuidban` |
+| `/xuidban <target> <time> [reason]` | – | Bans an **online** player by their XUID for `<time>` and kicks them. The ban is stored in the database, so it persists across restarts. | `white.permissions.commands.xuidban` |
 | `/xuidpardon <name>` | `/xuidunban` | Removes a ban created by `/xuidban`. Takes the **player name** that was used when banning (not the XUID). | `white.permissions.commands.xuidban` |
 | `/getxuid <target>` | – | Prints the XUID of an **online** player. | `white.permissions.commands.xuidban` |
+| `/deviceban <target> <time> [reason]` | – | Bans an **online** player by their device ID for `<time>` and kicks them. *(new in 1.0.3)* | `white.permissions.commands.deviceban` |
+| `/devicepardon <name>` | `/deviceunban` | Removes a ban created by `/deviceban`. Takes the **player name** that was used when banning. *(new in 1.0.3)* | `white.permissions.commands.deviceban` |
+| `/getdeviceid <target>` | – | Prints the device ID of an **online** player. *(new in 1.0.3)* | `white.permissions.commands.deviceban` |
 | `/mute <target> <time> [reason]` | – | Mutes an **online** player for `<time>` (e.g. `30m`, `2d`, `1h30m`). | `white.permissions.commands.mute` |
 | `/unmute <target>` | – | Removes a mute from an **online** player. | `white.permissions.commands.mute` |
 
-Time format for `/mute`: one or more `<number><unit>` groups, no spaces. Units: `w` = week, `d` = day, `h` = hour, `m` = minute, `s` = second. The total must be greater than zero.
+Time format for `/mute`, `/xuidban` and `/deviceban`: one or more `<number><unit>` groups, no spaces. Units: `w` = week, `d` = day, `h` = hour, `m` = minute, `s` = second. The total must be greater than zero.
 
 Examples:
 
@@ -176,10 +190,19 @@ Examples:
 /getxuid Steve
 > Steve's XUID is 2535412345678901
 
-/xuidban Steve griefing
-> Steve was banned by XUID
+/xuidban Steve 7d griefing
+> Steve was banned
 
 /xuidpardon Steve
+> Steve was unbanned
+
+/getdeviceid Steve
+> Steve's device ID is 5f1c9a3e-0000-0000-0000-000000000000
+
+/deviceban Steve 12h ban evasion
+> Steve was banned
+
+/devicepardon Steve
 > Steve was unbanned
 
 /mute Steve 2h30m spamming
@@ -196,6 +219,7 @@ Examples:
 | Permission | Default | Description |
 |---|---|---|
 | `white.permissions.commands.xuidban` | `op` | Use `/xuidban`, `/xuidpardon` and `/getxuid`. |
+| `white.permissions.commands.deviceban` | `op` | Use `/deviceban`, `/devicepardon` and `/getdeviceid`. *(new in 1.0.3)* |
 | `white.permissions.commands.mute` | `op` | Use `/mute` and `/unmute`. |
 | `white.permissions.chat.color` | `op` | Use colour codes in chat messages. |
 | `white.permissions.chat.caps` | `op` | Bypass anti-caps. |
@@ -205,6 +229,7 @@ Grant them with LuckPerms, e.g.:
 
 ```text
 /lp group moderator permission set white.permissions.commands.xuidban true
+/lp group moderator permission set white.permissions.commands.deviceban true
 /lp group moderator permission set white.permissions.commands.mute true
 /lp group vip permission set white.permissions.chat.color true
 /lp group vip permission set white.permissions.chat.spam true
@@ -253,10 +278,10 @@ message_format: "%chat_type% &7| &r[%rank%&r] %player% %title% &8&l-> &r%message
 enable_name_tag_change: true
 name_tag_format: "%device% &7| &r[%rank%&r] %player% %title%\n  &c%health% HP &7| &r%ping% ms"
 
-# ---- Anti-caps (new in 1.0.2) ----
+# ---- Anti-caps ----
 enable_anticaps: true
 
-# ---- Chat cooldowns (new in 1.0.2) ----
+# ---- Chat cooldowns ----
 enable_chat_cooldowns: true
 chat_cooldowns:
   default: 3         # seconds, applies to everyone
@@ -318,10 +343,29 @@ Placeholders are written between percent signs and can be used in `message_forma
 
 The rank is also what the [chat cooldown](#chat-cooldowns) overrides are matched against.
 
+### Bans (XUID & device ID)
+
+Both ban types work the same way:
+
+- A ban lasts for the duration you specify (same time format as `/mute`, e.g. `7d`, `1w2d`, `5h30m`). The duration is required.
+- The ban stores the player's name, the expiry time, the reason and the admin's name in the database, so it persists across restarts.
+- Expired bans are removed automatically the next time they are checked.
+- The target must be **online** when you ban them. The player is kicked and the ban is broadcast to the whole server.
+- Banned players are rejected at login with `You're banned!`.
+- `/xuidpardon` and `/devicepardon` take the **player name** that was used when banning.
+
+| | XUID ban | Device ID ban |
+|---|---|---|
+| Identifier | Xbox Live ID (`/getxuid`) | Device ID sent by the client (`/getdeviceid`) |
+| Ban / unban | `/xuidban`, `/xuidpardon` | `/deviceban`, `/devicepardon` |
+| Table | `banned_players_by_xuid` | `banned_players_by_device` |
+
+> The XUID is empty for players who are not authenticated with Xbox Live (e.g. when `xbox-auth` is disabled), so XUID bans are only meaningful on authenticated servers.
+
 ### Device & input mode blocking
 
-- **Device blocking** is checked when a player connects (pre-login).
-- **Input-mode blocking** is checked when a player connects **and then once per second** while they are online, so a player who switches to a blocked input mode is kicked.
+- **Device blocking** is checked when a player connects (pre-login), right after the ban checks.
+- **Input-mode blocking** is checked when a player connects **and then once per second** while they are online. From 1.0.3 the current mode is taken from the player's input packets, so a player who switches to a blocked input mode mid-session is kicked.
 
 Typical use cases:
 
@@ -348,10 +392,11 @@ plugins/K3wtyChatManager/database.db
 
 | Table | Columns | Purpose |
 |---|---|---|
-| `banned_players_by_xuid` | `xuid TEXT PRIMARY KEY`, `name TEXT` | XUID bans |
+| `banned_players_by_xuid` | `xuid TEXT PRIMARY KEY`, `name TEXT`, `time INTEGER`, `reason TEXT`, `admin TEXT` | XUID bans. `time` is the **expiry** as a Unix timestamp in milliseconds. |
+| `banned_players_by_device` | `deviceId TEXT PRIMARY KEY`, `name TEXT`, `time INTEGER`, `reason TEXT`, `admin TEXT` | Device ID bans. `time` is the **expiry** as a Unix timestamp in milliseconds. *(new in 1.0.3)* |
 | `muted_players` | `name TEXT PRIMARY KEY`, `time INTEGER`, `reason TEXT`, `admin TEXT` | Mutes. `time` is the **expiry** as a Unix timestamp in milliseconds. |
 
-Back this file up if you want to keep your ban and mute lists.
+Tables are created automatically if they do not exist, but existing tables are **not** altered, so a database from 1.0.2 must be deleted when upgrading – see [Upgrading from 1.0.2](#upgrading-from-102). Back this file up if you want to keep your ban and mute lists.
 
 ---
 
@@ -371,7 +416,7 @@ Then add the jar to your build. With Maven (local jar, `provided` scope):
 <dependency>
   <groupId>com.white</groupId>
   <artifactId>k3wtychatmanager</artifactId>
-  <version>1.0.2</version>
+  <version>1.0.3</version>
   <scope>provided</scope>
 </dependency>
 ```
@@ -379,8 +424,8 @@ Then add the jar to your build. With Maven (local jar, `provided` scope):
 Install it into your local repository first:
 
 ```bash
-mvn install:install-file -Dfile=k3wtychatmanager-1.0.2.jar \
-  -DgroupId=com.white -DartifactId=k3wtychatmanager -Dversion=1.0.2 -Dpackaging=jar
+mvn install:install-file -Dfile=k3wtychatmanager-1.0.3.jar \
+  -DgroupId=com.white -DartifactId=k3wtychatmanager -Dversion=1.0.3 -Dpackaging=jar
 ```
 
 Or build it yourself (`mvn clean install`) — see [Building from source](#building-from-source).
@@ -391,8 +436,8 @@ Or build it yourself (`mvn clean install`) — see [Building from source](#build
 |---|---|---|
 | `ChatManager` | `com.white.k3wtychatmanager.api.chat` | Placeholder formatting, chat-type detection, rank/title lookup, display settings. Singleton. |
 | `ChatType` | `com.white.k3wtychatmanager.api.chat` | Enum: `UNDEFINED`, `LOCAL`, `GLOBAL`. |
-| `ClientManager` | `com.white.k3wtychatmanager.api.client` | Device OS, input mode and XUID helpers. Singleton, implements `ClientDatabase`. |
-| `ClientDatabase` | `com.white.k3wtychatmanager.api.client` | SQLite-backed storage for XUID bans and mutes (interface with default methods). |
+| `ClientManager` | `com.white.k3wtychatmanager.api.client` | Device OS, input mode, XUID and device ID helpers. Singleton, implements `ClientDatabase`. |
+| `ClientDatabase` | `com.white.k3wtychatmanager.api.client` | SQLite-backed storage for XUID bans, device ID bans and mutes (interface with default methods). |
 | `DeviceOS` | `com.white.k3wtychatmanager.api.client` | Enum of Bedrock device operating systems. |
 
 Both managers are singletons:
@@ -431,8 +476,9 @@ ClientManager client = ClientManager.getInstance();
 |---|---|
 | `static ClientManager getInstance()` | Get the singleton instance. |
 | `DeviceOS getPlayerDeviceOs(Player player)` | The player's device OS (`UNDEFINED` for `null`). |
-| `InputMode getPlayerInputMode(Player player)` | The player's input mode as reported at login (Nukkit's `InputMode`). |
+| `InputMode getPlayerInputMode(Player player)` | The player's input mode as reported at login (Nukkit's `InputMode`). The live mode used for input-mode blocking is tracked internally and is not exposed by this method. |
 | `String getPlayerXUID(Player player)` | The player's XUID (empty string for `null`; empty for offline-mode/non-authenticated players). |
+| `String getPlayerDeviceId(Player player)` | The player's device ID (empty string for `null`). *(new in 1.0.3)* |
 
 **Database**
 
@@ -443,15 +489,25 @@ ClientManager client = ClientManager.getInstance();
 | `boolean isDatabaseOpened()` | Whether the connection is open. |
 | `void closeDatabase(Boolean force)` | Closes the connection when `force == true`. |
 
-**XUID bans** *(signatures changed in 1.0.2)*
+**XUID bans** *(`banPlayerByXUID` signature changed in 1.0.3)*
 
 | Method | Description |
 |---|---|
-| `void banPlayerByXUID(String xuid, String name) throws SQLException` | Add a XUID (with the player's name) to the ban list. Does nothing if `xuid` is `null`/empty; idempotent. |
+| `void banPlayerByXUID(String xuid, String name, int time, String reason, String admin) throws SQLException` | Ban `xuid` for `time` **seconds** and remember `name`. Replaces an existing ban. Does nothing if `name` is `null` or `time < 0`. `null` reason → `"No reason"`, `null` admin → `"Console"`. |
 | `void unBanPlayerByXUID(String xuid, String name) throws SQLException` | Remove a ban. If `xuid` is non-null it is used; otherwise the ban is looked up by `name`. Pass `null` for the one you don't have. |
-| `boolean isPlayerBannedByXUID(String xuid, String name) throws SQLException` | Check whether a ban exists. If `xuid` is non-null it is used; otherwise `name` is used. |
+| `boolean isPlayerBannedByXUID(String xuid, String name) throws SQLException` | Check whether an active ban exists. If `xuid` is non-null and non-empty the lookup is done **by XUID**, otherwise by `name`. Expired bans are deleted and return `false`. |
+| `String[] getPlayerXUIDBanInfo(String xuid, String name) throws SQLException` | `{xuid, name, remainingSeconds, reason, admin}` for an active ban, or a single-element array (`{name}` / `{xuid}`) if there is none. Lookup by `xuid` if it is non-null and non-empty, otherwise by `name`. *(new in 1.0.3)* |
 
-**Mutes** *(new in 1.0.2)*
+**Device ID bans** *(new in 1.0.3)*
+
+| Method | Description |
+|---|---|
+| `void banPlayerByDeviceId(String deviceId, String name, int time, String reason, String admin) throws SQLException` | Ban `deviceId` for `time` **seconds** and remember `name`. Replaces an existing ban. Does nothing if `name` is `null` or `time < 0`. |
+| `void unBanPlayerByDeviceId(String deviceId, String name) throws SQLException` | Remove a ban. If `deviceId` is non-null it is used; otherwise the ban is looked up by `name`. |
+| `boolean isPlayerBannedByDeviceId(String deviceId, String name) throws SQLException` | Check whether an active ban exists. If `deviceId` is non-null and non-empty the lookup is done by device ID, otherwise by `name`. Expired bans are deleted and return `false`. |
+| `String[] getPlayerDeviceIdBanInfo(String deviceId, String name) throws SQLException` | `{deviceId, name, remainingSeconds, reason, admin}` for an active ban, or a single-element array if there is none. Lookup by `deviceId` if it is non-null and non-empty, otherwise by `name`. |
+
+**Mutes**
 
 | Method | Description |
 |---|---|
@@ -515,12 +571,28 @@ ClientManager client = ClientManager.getInstance();
 String xuid = client.getPlayerXUID(player);
 
 try {
-    client.banPlayerByXUID(xuid, player.getName());
+    // ban for 7 days (604800 seconds)
+    client.banPlayerByXUID(xuid, player.getName(), 604800, "Griefing", "AutoMod");
     if (client.isPlayerBannedByXUID(xuid, player.getName())) {
         player.kick("You have been banned.");
     }
     // later: unban by name only
     client.unBanPlayerByXUID(null, player.getName());
+} catch (SQLException e) {
+    getLogger().error("Database error: " + e.getMessage());
+}
+```
+
+**Ban a player's device for 1 hour**
+
+```java
+ClientManager client = ClientManager.getInstance();
+String deviceId = client.getPlayerDeviceId(player);
+
+try {
+    client.banPlayerByDeviceId(deviceId, player.getName(), 3600, "Ban evasion", "AutoMod");
+    String[] info = client.getPlayerDeviceIdBanInfo(deviceId, null);
+    // info = {deviceId, name, secondsLeft, reason, admin}
 } catch (SQLException e) {
     getLogger().error("Database error: " + e.getMessage());
 }
@@ -566,7 +638,7 @@ cd K3wtyChatManager
 mvn clean package
 ```
 
-The shaded jar is produced at `target/k3wtychatmanager-1.0.2.jar` (use this one, not `original-*.jar`).
+The shaded jar is produced at `target/k3wtychatmanager-1.0.3.jar` (use this one, not `original-*.jar`).
 
 Dependencies are resolved from `https://repo.lanink.cn/repository/maven-public/` (Nukkit-MOT) and Maven Central (LuckPerms API, SQLite JDBC). Nukkit-MOT and LuckPerms are `provided`; SQLite JDBC is shaded.
 
@@ -577,8 +649,8 @@ src/main/
 ├── java/com/white/k3wtychatmanager/
 │   ├── Main.java                  # Plugin entry point
 │   ├── ChatManagerHandler.java    # Chat event handling: mutes, cooldowns, anti-caps, local/global chat, name tags
-│   ├── ClientManagerHandler.java  # Pre-login checks: XUID bans, device/input blocking; input-mode watcher
-│   ├── CommandManager.java        # /xuidban, /xuidpardon, /getxuid, /mute, /unmute
+│   ├── ClientManagerHandler.java  # Pre-login checks: XUID/device ID bans, device/input blocking; live input-mode tracking
+│   ├── CommandManager.java        # /xuidban, /xuidpardon, /getxuid, /deviceban, /devicepardon, /getdeviceid, /mute, /unmute
 │   ├── ResourcePackManager.java   # Registers the bundled font pack
 │   └── api/
 │       ├── chat/   ChatManager, ChatType

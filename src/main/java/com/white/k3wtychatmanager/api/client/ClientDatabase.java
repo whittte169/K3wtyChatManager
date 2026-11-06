@@ -13,7 +13,7 @@ import java.sql.Statement;
  * 
  * ClientDatabase interface
  * @author <a href="https://github.com/whittte169">whittte169</a>
- * @version 1.0.0
+ * @version 1.0.2
  */
 public interface ClientDatabase {
     /**
@@ -59,7 +59,8 @@ public interface ClientDatabase {
         File databaseFile = new File(dataFolder, "database.db");
         Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databaseFile.getAbsolutePath());
         try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("CREATE TABLE IF NOT EXISTS banned_players_by_xuid (xuid TEXT PRIMARY KEY, name TEXT)");
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS banned_players_by_xuid (xuid TEXT PRIMARY KEY, name TEXT, time INTEGER, reason TEXT, admin TEXT)");
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS banned_players_by_device (deviceId TEXT PRIMARY KEY, name TEXT, time INTEGER, reason TEXT, admin TEXT)");
             statement.executeUpdate("CREATE TABLE IF NOT EXISTS muted_players (name TEXT PRIMARY KEY, time INTEGER, reason TEXT, admin TEXT)");
         }
         return connection;
@@ -82,15 +83,24 @@ public interface ClientDatabase {
     /**
      * Ban player by XUID
      * @param xuid {@link String}
+     * @param name {@link String}
+     * @param time {@link Integer} in seconds
+     * @param reason {@link String}
+     * @param admin {@link String}
      * @throws SQLException
      */
-    default void banPlayerByXUID(String xuid, String name) throws SQLException {
-        if (xuid == null || xuid.isEmpty()) return;
-        if (name == null) name = "";
+    default void banPlayerByXUID(String xuid, String name, int time, String reason, String admin) throws SQLException {
+        if (name == null || xuid == null || xuid.isEmpty()) return;
+        if (time < 0) return;
+        if (reason == null) reason = "No reason";
+        if (admin == null) admin = "Console";
         try (PreparedStatement statement = getConnection().prepareStatement(
-                "INSERT OR IGNORE INTO banned_players_by_xuid (xuid, name) VALUES (?, ?)")) {
+                "INSERT OR REPLACE INTO banned_players_by_xuid (xuid, name, time, reason, admin) VALUES (?, ?, ?, ?, ?)")) {
             statement.setString(1, xuid);
             statement.setString(2, name);
+            statement.setLong(3, System.currentTimeMillis() + (time * 1000L));
+            statement.setString(4, reason);
+            statement.setString(5, admin);
             statement.executeUpdate();
         }
     }
@@ -98,6 +108,7 @@ public interface ClientDatabase {
     /**
      * Unban player by XUID
      * @param xuid {@link String}
+     * @param name {@link String}
      * @throws SQLException
      */
     default void unBanPlayerByXUID(String xuid, String name) throws SQLException {
@@ -121,29 +132,115 @@ public interface ClientDatabase {
     /**
      * Check is player banned by XUID
      * @param xuid {@link String}
+     * @param name {@link String}
      * @return is player banned by XUID {@link Boolean}
      * @throws SQLException
      */
     default boolean isPlayerBannedByXUID(String xuid, String name) throws SQLException {
-        if (xuid != null) {
+        if (xuid != null && !xuid.isEmpty()) {
             try (PreparedStatement statement = getConnection().prepareStatement(
-                    "SELECT 1 FROM banned_players_by_xuid WHERE xuid = ?")) {
+                    "SELECT time FROM banned_players_by_xuid WHERE xuid = ?")) {
                 statement.setString(1, xuid);
                 try (ResultSet result = statement.executeQuery()) {
-                    return result.next();
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        if (System.currentTimeMillis() > time) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_xuid WHERE xuid = ?")) {
+                                state.setString(1, xuid);
+                                state.executeUpdate();
+                            }
+                            return false;
+                        }
+                        return true;
+                    }
+                    return false;
                 }
             }
         }
         if (name != null) {
             try (PreparedStatement statement = getConnection().prepareStatement(
-                    "SELECT 1 FROM banned_players_by_xuid WHERE name = ?")) {
+                    "SELECT time FROM banned_players_by_xuid WHERE name = ?")) {
                 statement.setString(1, name);
                 try (ResultSet result = statement.executeQuery()) {
-                    return result.next();
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        if (System.currentTimeMillis() > time) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_xuid WHERE name = ?")) {
+                                state.setString(1, name);
+                                state.executeUpdate();
+                            }
+                            return false;
+                        }
+                        return true;
+                    }
+                    return false;
                 }
             }
         }
         return false;
+    }
+
+    /**
+     * Get player's XUID ban info
+     * @param name {@link String}
+     * @param xuid {@link String}
+     * @return player's XUID ban info {@link Arrays}
+     * @throws SQLException
+     */
+    default String[] getPlayerXUIDBanInfo(String xuid, String name) throws SQLException {
+        if (xuid != null && !xuid.isEmpty()) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                    "SELECT name, time, reason, admin FROM banned_players_by_xuid WHERE xuid = ?")) {
+                statement.setString(1, xuid);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        String admin = result.getString("admin");
+                        String reason = result.getString("reason");
+                        String bannedName = result.getString("name");
+                        if ((time - System.currentTimeMillis()) / 1000 <= 0 ) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_xuid WHERE xuid = ?")) {
+                                state.setString(1, xuid);
+                                state.executeUpdate();
+                            }
+                            return new String[]{xuid};
+                        }
+                        long formatedTime = (time - System.currentTimeMillis()) / 1000;
+                        return new String[]{xuid, bannedName, String.valueOf(formatedTime), reason, admin};
+                    }
+                    return new String[]{xuid};
+                }
+            }
+        }
+        if (name != null) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                    "SELECT xuid, time, reason, admin FROM banned_players_by_xuid WHERE name = ?")) {
+                statement.setString(1, name);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        String admin = result.getString("admin");
+                        String reason = result.getString("reason");
+                        String bannedXUID = result.getString("xuid");
+                        if ((time - System.currentTimeMillis()) / 1000 <= 0 ) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_xuid WHERE name = ?")) {
+                                state.setString(1, name);
+                                state.executeUpdate();
+                            }
+                            return new String[]{name};
+                        }
+                        long formatedTime = (time - System.currentTimeMillis()) / 1000;
+                        return new String[]{bannedXUID, name, String.valueOf(formatedTime), reason, admin};
+                    }
+                    return new String[]{name};
+                }
+            }
+        }
+        return new String[]{};
     }
 
     /**
@@ -246,5 +343,168 @@ public interface ClientDatabase {
             }
         }
         return new String[]{name};
+    }
+
+    /**
+     * Ban player by device id
+     * @param deviceId {@link String}
+     * @param name {@link String}
+     * @param time {@link Integer} in seconds
+     * @param reason {@link String}
+     * @param admin {@link String}
+     * @throws SQLException
+     */
+    default void banPlayerByDeviceId(String deviceId, String name, int time, String reason, String admin) throws SQLException {
+        if (name == null) return;
+        if (time < 0) return;
+        if (reason == null) reason = "No reason";
+        if (admin == null) admin = "Console";
+        try (PreparedStatement statement = getConnection().prepareStatement(
+                "INSERT OR REPLACE INTO banned_players_by_device (deviceId, name, time, reason, admin) VALUES (?, ?, ?, ?, ?)")) {
+            statement.setString(1, deviceId);
+            statement.setString(2, name);
+            statement.setLong(3, System.currentTimeMillis() + (time * 1000L));
+            statement.setString(4, reason);
+            statement.setString(5, admin);
+            statement.executeUpdate();
+        }
+    }
+
+    /**
+     * Unban player by device id
+     * @param deviceId {@link String}
+     * @param name {@link String}
+     * @throws SQLException
+     */
+    default void unBanPlayerByDeviceId(String deviceId, String name) throws SQLException {
+        if (deviceId != null) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                "DELETE FROM banned_players_by_device WHERE deviceId = ?")) {
+                statement.setString(1, deviceId);
+                statement.executeUpdate();
+            }
+            return;
+        }
+        if (name != null) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                "DELETE FROM banned_players_by_device WHERE name = ?")) {
+                statement.setString(1, name);
+                statement.executeUpdate();
+            }
+        }
+    }
+
+    /**
+     * Check is player banned by device id
+     * @param deviceId {@link String}
+     * @param name {@link String}
+     * @return is player banned by device id {@link Boolean}
+     * @throws SQLException
+     */
+    default boolean isPlayerBannedByDeviceId(String deviceId, String name) throws SQLException {
+        if (deviceId != null && !deviceId.isEmpty()) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                    "SELECT time FROM banned_players_by_device WHERE deviceId = ?")) {
+                statement.setString(1, deviceId);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        if (System.currentTimeMillis() > time) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_device WHERE deviceId = ?")) {
+                                state.setString(1, deviceId);
+                                state.executeUpdate();
+                            }
+                            return false;
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+            }
+        }
+        if (name != null) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                    "SELECT time FROM banned_players_by_device WHERE name = ?")) {
+                statement.setString(1, name);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        if (System.currentTimeMillis() > time) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_device WHERE name = ?")) {
+                                state.setString(1, name);
+                                state.executeUpdate();
+                            }
+                            return false;
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Get player's device id ban info
+     * @param name {@link String}
+     * @param deviceId {@link String}
+     * @return player's device id ban info {@link Arrays}
+     * @throws SQLException
+     */
+    default String[] getPlayerDeviceIdBanInfo(String deviceId, String name) throws SQLException {
+        if (deviceId != null && !deviceId.isEmpty()) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                    "SELECT name, time, reason, admin FROM banned_players_by_device WHERE deviceId = ?")) {
+                statement.setString(1, deviceId);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        String admin = result.getString("admin");
+                        String reason = result.getString("reason");
+                        String bannedName = result.getString("name");
+                        if ((time - System.currentTimeMillis()) / 1000 <= 0 ) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_device WHERE deviceId = ?")) {
+                                state.setString(1, deviceId);
+                                state.executeUpdate();
+                            }
+                            return new String[]{deviceId};
+                        }
+                        long formatedTime = (time - System.currentTimeMillis()) / 1000;
+                        return new String[]{deviceId, bannedName, String.valueOf(formatedTime), reason, admin};
+                    }
+                    return new String[]{deviceId};
+                }
+            }
+        }
+        if (name != null) {
+            try (PreparedStatement statement = getConnection().prepareStatement(
+                    "SELECT deviceId, time, reason, admin FROM banned_players_by_device WHERE name = ?")) {
+                statement.setString(1, name);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (result.next()) {
+                        long time = result.getLong("time");
+                        String admin = result.getString("admin");
+                        String reason = result.getString("reason");
+                        String bannedDeviceId = result.getString("deviceId");
+                        if ((time - System.currentTimeMillis()) / 1000 <= 0 ) {
+                            try (PreparedStatement state = getConnection().prepareStatement(
+                                "DELETE FROM banned_players_by_device WHERE name = ?")) {
+                                state.setString(1, name);
+                                state.executeUpdate();
+                            }
+                            return new String[]{name};
+                        }
+                        long formatedTime = (time - System.currentTimeMillis()) / 1000;
+                        return new String[]{bannedDeviceId, name, String.valueOf(formatedTime), reason, admin};
+                    }
+                    return new String[]{name};
+                }
+            }
+        }
+        return new String[]{};
     }
 }

@@ -1,22 +1,25 @@
 name: K3wtyChatManager
-version: ["1.0.2"]
+version: ["1.0.3"]
 main: com.white.k3wtychatmanager.Main
 api: ["1.0.0"]
 author: whittte169
 description: "Added to your server a ChatManager"
 permissions:
   white.permissions.commands.xuidban:
-    description: "Allow player to use a xuidban and xuidpardon command"
+    description: "Allow player to use a xuidban and xuidpardon commands"
     default: "op"
   white.permissions.chat.color:
     description: "Allow player use color codes in chat messages"
     default: "op"
   white.permissions.commands.mute:
-    description: "Allow player to use a mute and unmute command"
+    description: "Allow player to use a mute and unmute commands"
     default: "op"
   white.permissions.chat.caps:
     description: "Allow player to caps in chat"
     default: "op"
   white.permissions.chat.spam:
     description: "Allow player to spam in chat"
+    default: "op"
+  white.permissions.commands.deviceban:
+    description: "Allow player to use a deviceban and devicepardon commands"
     default: "op"

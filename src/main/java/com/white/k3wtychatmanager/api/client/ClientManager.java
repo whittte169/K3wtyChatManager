@@ -14,7 +14,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  * library for method with Player
  * also a task handler involving the Player's device
  * @author <a href="https://github.com/whittte169">whittte169</a>
- * @version 1.0.1
+ * @version 1.0.3
  * 
  */
 public class ClientManager implements ClientDatabase {
@@ -87,5 +87,15 @@ public class ClientManager implements ClientDatabase {
     public String getPlayerXUID(Player player) {
         if (player == null) return "";
         return player.getLoginChainData().getXUID();
+    }
+
+    /**
+     * Get player's device id
+     * @param player {@link Player}
+     * @return device id {@link String}
+     */
+    public String getPlayerDeviceId(Player player) {
+        if (player == null) return "";
+        return player.getLoginChainData().getDeviceId();
     }
 }
